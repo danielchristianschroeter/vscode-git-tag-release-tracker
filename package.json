@@ -1,0 +1,113 @@
+{
+  "name": "git-tag-release-tracker",
+  "displayName": "Git Tag Release Tracker",
+  "description": "Track and manage your Git tags and releases directly from VSCode.",
+  "author": {
+    "name": "Daniel Christian Schroeter"
+  },
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.93.0"
+  },
+  "categories": [
+    "Other",
+    "Snippets"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/danielchristianschroeter/vscode-git-tag-release-tracker"
+  },
+  "keywords": [
+    "git",
+    "tag",
+    "release",
+    "versioning",
+    "vscode",
+    "extension",
+    "repository",
+    "commit",
+    "automation",
+    "workflow",
+    "semver",
+    "version control",
+    "git tags",
+    "release management",
+    "git integration",
+    "development tools",
+    "productivity",
+    "source control",
+    "CI/CD",
+    "continuous integration"
+  ],
+  "activationEvents": [
+    "workspaceContains:.git"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "extension.createMajorTag",
+        "title": "Create Major Tag"
+      },
+      {
+        "command": "extension.createMinorTag",
+        "title": "Create Minor Tag"
+      },
+      {
+        "command": "extension.createPatchTag",
+        "title": "Create Patch Tag"
+      },
+      {
+        "command": "extension.openCompareLink",
+        "title": "Open Compare Link"
+      }
+    ],
+    "configuration": {
+      "type": "object",
+      "properties": {
+        "gitTagReleaseTracker.defaultBranch": {
+          "type": "string",
+          "default": "main",
+          "description": "The default branch used for release versioning (e.g., main, master, production)"
+        }
+      }
+    }
+  },
+  "icon": "images/icon.png",
+  "main": "./dist/extension.js",
+  "scripts": {
+    "vscode:prepublish": "npm run package",
+    "compile": "npm run check-types && npm run lint && node esbuild.js",
+    "watch": "npm-run-all -p watch:*",
+    "watch:esbuild": "node esbuild.js --watch",
+    "watch:tsc": "tsc --noEmit --watch --project tsconfig.json",
+    "package": "npm run check-types && npm run lint && node esbuild.js --production",
+    "compile-tests": "tsc -p . --outDir out",
+    "watch-tests": "tsc -p . -w --outDir out",
+    "pretest": "npm run compile-tests && npm run compile && npm run lint",
+    "check-types": "tsc --noEmit",
+    "lint": "eslint src",
+    "test": "vscode-test"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.7",
+    "@types/node": "22.5.5",
+    "@types/semver": "^7.5.8",
+    "@types/sinon": "^17.0.3",
+    "@types/vscode": "^1.93.0",
+    "@typescript-eslint/eslint-plugin": "^8.6.0",
+    "@typescript-eslint/parser": "^8.6.0",
+    "@vscode/test-cli": "^0.0.10",
+    "@vscode/test-electron": "^2.4.1",
+    "chai": "^5.1.1",
+    "esbuild": "^0.23.1",
+    "eslint": "^9.10.0",
+    "mocha": "^10.7.3",
+    "npm-run-all": "^4.1.5",
+    "sinon": "^19.0.2",
+    "typescript": "^5.6.2"
+  },
+  "dependencies": {
+    "semver": "^7.6.3",
+    "simple-git": "^3.27.0"
+  }
+}
