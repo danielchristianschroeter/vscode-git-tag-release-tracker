@@ -13,7 +13,7 @@ This **Git Tag Release Tracker** Visual Studio Code extension allows you to trac
 
 ### Screenshots
 
-> ![Status Bar Integration](images/status-bar.png)
+![Status Bar Integration](images/status-bar.png)
 
 ## Requirements
 
