@@ -292,7 +292,12 @@ async function updateStatusBar(
     const [, prefix, major, minor, patch, suffix] = tagMatch;
     const commits = await git.log({ from: latestTag, to: currentBranch });
 
-    statusBarItem.text = `$(git-commit) ${commits.total} unreleased commits | ${currentRepo}/${currentBranch} | Latest Version Tag:`;
+    let statusBarText = `$(git-commit) ${commits.total} unreleased commits | ${currentRepo}/${currentBranch} | Current Version:`;
+    if (!(currentBranch === defaultBranch && commits.total > 0)) {
+      statusBarText += ` ${latestTag}`;
+    }
+
+    statusBarItem.text = statusBarText;
     statusBarItem.tooltip = `${commits.total} unreleased commits for ${currentRepo}/${currentBranch} based on version ${latestTag}`;
     statusBarItem.show();
 

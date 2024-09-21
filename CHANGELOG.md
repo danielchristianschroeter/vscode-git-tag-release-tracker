@@ -1,23 +1,9 @@
 # Changelog
 
-All notable changes to this project will be documented in this file.
+## [1.0.1]
 
-## [Unreleased]
+- Fixed: Show unchangeable current version tag on no publishable commits
 
-### Added
-
--
-
-### Changed
-
--
-
-### Removed
-
--
-
-## [1.1.1] - 2024-09-20
-
-### Added
+## [1.0.0]
 
 - Initial release of Git Tag Release Tracker.
