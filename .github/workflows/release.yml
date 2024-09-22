@@ -31,11 +31,16 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Generate Release Notes from Commits
+        id: release_notes
+        run: |
+          echo "release_notes=$(git log --oneline $(git describe --tags --abbrev=0)..HEAD)" >> $GITHUB_OUTPUT
+
       - name: Update Changelog
         uses: stefanzweifel/changelog-updater-action@v1
         with:
           latest-version: ${{ steps.version_step.outputs.version }}
-          release-notes: ${{ github.event.release.body }}
+          release-notes: ${{ steps.release_notes.outputs.release_notes }}
 
       - name: Commit updated CHANGELOG
         uses: stefanzweifel/git-auto-commit-action@v5
