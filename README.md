@@ -13,9 +13,20 @@ The **Git Tag Release Tracker** extension for Visual Studio Code allows you to m
 
 ### Screenshots
 
-![Status Bar Integration - Create Initial Version](images/status-bar-create-initial-version.png)
+#### Create Initial Version
 
-![Status Bar Integration - Increase Existing Major, Minor or Patch Version with a single click](images/status-bar-create-and-push-new-version.png)
+![Create Initial Version](images/status-bar-create-initial-version.png "Create Initial Version")
+Easily create an initial version (1.0.0) if no tags are present.
+
+#### Increment Major, Minor, or Patch Version
+
+![Increment Version](images/status-bar-create-and-push-new-version.png "Increment Version")
+Increase Major, Minor or Patch Version with just a single click.
+
+#### Preserve Prefix and Suffix
+
+![Preserve Prefix and Suffix](images/status-bar-create-and-push-new-version-keep-prefix-and-stuffix.png "Preserve Prefix and Suffix")
+Maintain existing prefixes and suffixes in the version tag structure.
 
 ## Requirements
 
@@ -26,9 +37,3 @@ Ensure your current directory contains a Git repository with a configured remote
 This extension contributes the following settings:
 
 - `gitTagReleaseTracker.defaultBranch`: Specifies the default branch used for release versioning (e.g., main, master, production). Default is `main`.
-
-## Release Notes
-
-### 1.0.0
-
-- Initial release of Git Tag Release Tracker
