@@ -13,20 +13,23 @@ The **Git Tag Release Tracker** extension for Visual Studio Code allows you to m
 
 ### Screenshots
 
-#### Create Initial Version
+<p align="center">
+<img src="images/status-bar-create-initial-version.png" alt="Create Initial Version" width=80%>
+<br/>
+<em>Easily create an initial version (1.0.0) if no tags are present.</em>
+</p>
 
-![Create Initial Version](images/status-bar-create-initial-version.png "Create Initial Version")
-Easily create an initial version (1.0.0) if no tags are present.
+<p align="center">
+<img src="images/status-bar-create-and-push-new-version.png" alt="Increment Version" width=80%>
+<br/>
+<em>Increase Major, Minor or Patch Version with just a single click.</em>
+</p>
 
-#### Increment Major, Minor, or Patch Version
-
-![Increment Version](images/status-bar-create-and-push-new-version.png "Increment Version")
-Increase Major, Minor or Patch Version with just a single click.
-
-#### Preserve Prefix and Suffix
-
-![Preserve Prefix and Suffix](images/status-bar-create-and-push-new-version-keep-prefix-and-stuffix.png "Preserve Prefix and Suffix")
-Maintain existing prefixes and suffixes in the version tag structure.
+<p align="center">
+<img src="images/status-bar-create-and-push-new-version-keep-prefix-and-stuffix.png" alt="Preserve Prefix and Suffix" width=80%>
+<br/>
+<em>Maintain existing prefixes and suffixes in the version tag structure.</em>
+</p>
 
 ## Requirements
 
