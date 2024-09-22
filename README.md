@@ -1,23 +1,25 @@
 # Git Tag Release Tracker
 
-This **Git Tag Release Tracker** Visual Studio Code extension allows you to track and manage your Git tags and releases directly from within your VSCode environment.
+The **Git Tag Release Tracker** extension for Visual Studio Code allows you to manage and track your Git tags and releases directly within Visual Studio Code. Easily increment your Major, Minor, or Patch semantic versioning with a single click in the status bar.
 
 ## Features
 
-- **Automatic Detection**: The extension automatically detects your Git repository, branch, and the latest tags.
-- **Status Bar Integration**: Displays the number of unreleased commits and the latest tag version in the VSCode status bar.
+- **Automatic Detection**: Automatically detects your Git repository, branch, and the latest tags.
+- **Status Bar Integration**: Displays the number of unreleased commits and the latest tag version in the VS Code status bar.
 - **Tag Management**: Provides buttons to create major, minor, and patch tags directly from the status bar.
 - **Initial Tag Creation**: Easily create an initial version tag (1.0.0) if no tags are present.
-- **Compare Commits**: Open a compare link to view changes between the latest tag and current branch on GitHub/GitLab.
-- **Ideal for CI/CD Workflows**: Perfect for integration into CI/CD workflows that will be triggered by tag pushes.
+- **Compare Commits**: Open a compare link to view changes between the latest tag and the current branch on GitHub/GitLab.
+- **CI/CD Integration**: Ideal for CI/CD workflows triggered by tag pushes.
 
 ### Screenshots
 
-![Status Bar Integration](images/status-bar.png)
+![Status Bar Integration - Create Initial Version](images/status-bar-create-initial-version.png)
+
+![Status Bar Integration - Increase Existing Major, Minor or Patch Version with a single click](images/status-bar-create-and-push-new-version.png)
 
 ## Requirements
 
-Your current directory must contain a Git repository with a remote (such as GitHub or GitLab) configured.
+Ensure your current directory contains a Git repository with a configured remote (e.g., GitHub or GitLab).
 
 ## Extension Settings
 
