@@ -40,7 +40,6 @@ jobs:
         uses: stefanzweifel/changelog-updater-action@v1
         with:
           latest-version: ${{ steps.version_step.outputs.version }}
-          release-notes: ${{ steps.release_notes.outputs.release_notes }}
 
       - name: Commit updated CHANGELOG
         uses: stefanzweifel/git-auto-commit-action@v5
