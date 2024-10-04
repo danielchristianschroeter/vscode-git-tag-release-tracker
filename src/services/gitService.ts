@@ -206,16 +206,24 @@ export class GitService {
       const remoteUrl = await this.getRemoteUrl();
       console.log('Remote URL:', remoteUrl);
 
-      // Use a regex that handles URLs with authentication tokens
-      const match = remoteUrl.match(/(?:https?:\/\/(?:[^@]+@)?github\.com\/|git@github\.com:)([^\/]+)\/([^\/\.]+)(?:\.git)?/);
-
-      if (match) {
-        const [, owner, repo] = match;
+      // Handle both HTTPS and SSH URLs for GitHub and GitLab
+      const httpsMatch = remoteUrl.match(/(?:https?:\/\/(?:[^@]+@)?(?:github|gitlab)\.com\/|git@(?:github|gitlab)\.com:)([^\/]+)\/([^\/\.]+)(?:\.git)?/);
+      
+      if (httpsMatch) {
+        const [, owner, repo] = httpsMatch;
         console.log('Extracted owner and repo:', { owner, repo });
         return { owner, repo };
-      } else {
-        throw new Error(`Unable to extract owner and repo from remote URL: ${remoteUrl}`);
       }
+
+      // If HTTPS/SSH pattern doesn't match, try GitLab-specific pattern
+      const gitlabSshMatch = remoteUrl.match(/git@gitlab\.com:(.+)\/(.+)\.git/);
+      if (gitlabSshMatch) {
+        const [, owner, repo] = gitlabSshMatch;
+        console.log('Extracted owner and repo from GitLab SSH URL:', { owner, repo });
+        return { owner, repo };
+      }
+
+      throw new Error(`Unable to extract owner and repo from remote URL: ${remoteUrl}`);
     } catch (error) {
       console.error('Error getting owner and repo:', error);
       throw error;

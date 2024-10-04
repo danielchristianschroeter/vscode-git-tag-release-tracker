@@ -8,5 +8,5 @@ export function showError(error: any, context: string) {
     errorMessage = "Failed to push the tag. Please try again in a few seconds.";
   }
   
-  vscode.window.showErrorMessage(`${context}: ${errorMessage}`);
+  return vscode.window.showErrorMessage(`${context}: ${errorMessage}`);
 }

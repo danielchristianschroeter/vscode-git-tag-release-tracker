@@ -39,43 +39,49 @@ The **Git Tag Release Tracker** extension for Visual Studio Code allows you to m
 
 ## Requirements
 
-- Ensure your current directory contains a Git repository with a configured remote (GitHub or GitLab).
-- For CI/CD status checks:
-  - GitHub: A Personal Access Token with `repo:status` scope (or `repo` for private repositories).
-  - GitLab: A Personal Access Token with `read_api` scope.
+- A Git repository with a configured remote (GitHub or GitLab).
+- For CI/CD status checks, create a Personal Access Token with the following scopes:
+  - For GitHub:
+    - Go to Settings > Developer settings > Personal access tokens > Generate new token.
+    - Select the `workflow` scope.
+  - For GitLab:
+    - Go to User Settings > Access Tokens.
+    - Create a new token with the `read_api` scope.
 
 ## Extension Settings
 
 This extension contributes the following settings:
 
 - `gitTagReleaseTracker.defaultBranch`: Specifies the default branch used for release versioning (e.g., main, master, production). Default is `main`.
-- `gitTagReleaseTracker.ciToken`: Your GitHub or GitLab Personal Access Token for CI/CD status checks.
-- `gitTagReleaseTracker.ciApiUrl`: The API URL for your CI/CD service.
-  - For GitHub: `https://api.github.com`
-  - For GitLab: Your GitLab instance URL (e.g., `https://gitlab.com` for GitLab.com)
+- `gitTagReleaseTracker.ciProviders`: Configuration for different CI providers (GitHub and GitLab).
 
 ## Setting up CI/CD Status Checks
 
-To enable CI/CD status checks for your tags:
-
-1. Generate a Personal Access Token:
-
-   - For GitHub:
-     - Go to Settings > Developer settings > Personal access tokens > Generate new token.
-     - Select the `repo:status` scope (or `repo` for private repositories).
-   - For GitLab:
-     - Go to User Settings > Access Tokens.
-     - Create a new token with the `read_api` scope.
+1. Generate Personal Access Tokens as per the requirements mentioned above.
 
 2. Open your VS Code settings (File > Preferences > Settings).
 
-3. Search for "Git Tag Release Tracker" and fill in the following settings:
+3. Search for "Git Tag Release Tracker" and add the following configuration to your `settings.json`:
 
-   - `gitTagReleaseTracker.ciToken`: Paste your Personal Access Token here.
-   - `gitTagReleaseTracker.ciApiUrl`:
-     - For GitHub: Use `https://api.github.com`
-     - For GitLab: Enter your GitLab instance URL (e.g., `https://gitlab.com` for GitLab.com)
+   ```json
+   "gitTagReleaseTracker.ciProviders": {
+     "github": {
+       "token": "your-github-token-here",
+       "apiUrl": "https://api.github.com"
+     },
+     "gitlab": {
+       "token": "your-gitlab-token-here",
+       "apiUrl": "https://gitlab.com"  // or your self-hosted GitLab URL
+     }
+   }
+   ```
 
-4. Save your settings.
+   Replace the token placeholders with your actual tokens.
 
-The extension will automatically detect whether you're using GitHub Actions or GitLab CI based on your repository configuration. It will then check and display the CI/CD status for your tags in the status bar.
+4. For self-hosted GitLab instances, update the `apiUrl` accordingly.
+
+5. Save your settings.
+
+The extension will automatically detect and use the appropriate CI system for each repository.
+
+Note: You can configure both GitHub and GitLab providers simultaneously if you work with both platforms.

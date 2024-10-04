@@ -1,26 +1,34 @@
 import * as vscode from 'vscode';
 import axios, { AxiosError } from 'axios';
 
+interface CIProvider {
+  token: string;
+  apiUrl: string;
+}
+
 export class CIService {
-  private token: string;
-  private apiUrl: string;
+  private providers: { [key: string]: CIProvider };
 
   constructor() {
-    const config = vscode.workspace.getConfiguration('gitTagReleaseTracker');
-    this.token = config.get<string>('ciToken', '');
-    this.apiUrl = config.get<string>('ciApiUrl', '');
-    
-    console.log('CIService initialized:');
-    console.log('API URL:', this.apiUrl);
-    console.log('Token set:', !!this.token);
+    this.providers = this.loadProviders();
   }
 
-  async getBuildStatus(tag: string, owner: string, repo: string, ciType?: 'github' | 'gitlab'): Promise<{ status: string, url: string, message?: string }> {
+  private loadProviders(): { [key: string]: CIProvider } {
+    const config = vscode.workspace.getConfiguration('gitTagReleaseTracker');
+    const ciProviders = config.get<{ [key: string]: CIProvider }>('ciProviders', {});
+    
+    console.log('CI Providers loaded:', Object.keys(ciProviders));
+    
+    return ciProviders;
+  }
+
+  async getBuildStatus(tag: string, owner: string, repo: string, ciType: 'github' | 'gitlab'): Promise<{ status: string, url: string, message?: string }> {
     console.log('getBuildStatus called with:', { tag, owner, repo, ciType });
 
-    if (!this.token || !this.apiUrl) {
-      console.error('CI Token or API URL is not set. Please check your settings.');
-      return { status: 'unknown', url: '', message: 'CI Token or API URL is not set. Please check your settings.' };
+    const provider = this.providers[ciType];
+    if (!provider || !provider.token || !provider.apiUrl) {
+      console.error(`CI Provider ${ciType} is not properly configured.`);
+      return { status: 'unknown', url: '', message: `CI Provider ${ciType} is not properly configured.` };
     }
 
     if (!owner || !repo) {
@@ -28,16 +36,11 @@ export class CIService {
       return { status: 'unknown', url: '', message: 'Unable to determine owner and repo.' };
     }
 
-    if (!ciType) {
-      console.log('CI type not provided, build status check disabled');
-      return { status: 'unknown', url: '', message: 'CI type not detected, build status check disabled' };
-    }
-
     try {
       if (ciType === 'github') {
-        return await this.getGitHubBuildStatus(tag, owner, repo);
+        return await this.getGitHubBuildStatus(tag, owner, repo, provider);
       } else if (ciType === 'gitlab') {
-        return await this.getGitLabBuildStatus(tag, owner, repo);
+        return await this.getGitLabBuildStatus(tag, owner, repo, provider);
       } else {
         throw new Error('Unsupported CI type');
       }
@@ -51,19 +54,19 @@ export class CIService {
         status: 'error', 
         url: ciType === 'github' 
           ? `https://github.com/${owner}/${repo}/actions`
-          : `${this.apiUrl}/${owner}/${repo}/-/pipelines`,
+          : `${provider.apiUrl}/${owner}/${repo}/-/pipelines`,
         message
       };
     }
   }
 
-  private async getGitHubBuildStatus(tag: string, owner: string, repo: string): Promise<{ status: string, url: string, message?: string }> {
-    const workflowsUrl = `${this.apiUrl}/repos/${owner}/${repo}/actions/workflows`;
+  private async getGitHubBuildStatus(tag: string, owner: string, repo: string, provider: CIProvider): Promise<{ status: string, url: string, message?: string }> {
+    const workflowsUrl = `${provider.apiUrl}/repos/${owner}/${repo}/actions/workflows`;
     console.log('Fetching workflows from:', workflowsUrl);
 
     const workflowsResponse = await axios.get(workflowsUrl, {
       headers: {
-        Authorization: `Bearer ${this.token}`,
+        Authorization: `Bearer ${provider.token}`,
         Accept: 'application/vnd.github+json',
         'X-GitHub-Api-Version': '2022-11-28'
       }
@@ -77,12 +80,12 @@ export class CIService {
     }
 
     const workflowId = workflowsResponse.data.workflows[0].id;
-    const runsUrl = `${this.apiUrl}/repos/${owner}/${repo}/actions/workflows/${workflowId}/runs`;
+    const runsUrl = `${provider.apiUrl}/repos/${owner}/${repo}/actions/workflows/${workflowId}/runs`;
     console.log('Fetching runs from:', runsUrl);
 
     const runsResponse = await axios.get(runsUrl, {
       headers: {
-        Authorization: `Bearer ${this.token}`,
+        Authorization: `Bearer ${provider.token}`,
         Accept: 'application/vnd.github+json',
         'X-GitHub-Api-Version': '2022-11-28'
       },
@@ -113,14 +116,14 @@ export class CIService {
     };
   }
 
-  private async getGitLabBuildStatus(tag: string, owner: string, repo: string): Promise<{ status: string, url: string, message?: string }> {
+  private async getGitLabBuildStatus(tag: string, owner: string, repo: string, provider: CIProvider): Promise<{ status: string, url: string, message?: string }> {
     const projectId = encodeURIComponent(`${owner}/${repo}`);
-    const pipelinesUrl = `${this.apiUrl}/api/v4/projects/${projectId}/pipelines`;
+    const pipelinesUrl = `${provider.apiUrl}/api/v4/projects/${projectId}/pipelines`;
     console.log('Fetching pipelines from:', pipelinesUrl);
 
     const pipelinesResponse = await axios.get(pipelinesUrl, {
       headers: {
-        'PRIVATE-TOKEN': this.token
+        'PRIVATE-TOKEN': provider.token
       },
       params: {
         ref: tag,
@@ -136,17 +139,18 @@ export class CIService {
       console.log(`No pipelines found for tag: ${tag}`);
       return { 
         status: 'pending', 
-        url: `${this.apiUrl}/${owner}/${repo}/-/pipelines`,
+        url: `${provider.apiUrl}/${owner}/${repo}/-/pipelines`,
         message: `No pipelines found for tag: ${tag}`
       };
     }
 
     const latestPipeline = pipelinesResponse.data[0];
     const status = this.mapGitLabStatus(latestPipeline.status);
+    const pipelineId = latestPipeline.id || 'latest'; // Add this line
     console.log(`GitLab CI returning status: ${status} for tag: ${tag}`);
     return { 
       status: status,
-      url: `${this.apiUrl}/${owner}/${repo}/-/pipelines/${latestPipeline.id}`,
+      url: `https://gitlab.com/${owner}/${repo}/-/pipelines/${pipelineId}`, // Use pipelineId here
       message: `GitLab CI returning status: ${status} for tag: ${tag}`
     };
   }

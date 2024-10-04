@@ -1,11 +1,9 @@
 import * as vscode from "vscode";
 import { GitService } from "../services/gitService";
-import { StatusBarService } from "../services/statusBarService";
 import { showError } from "../utils/errorHandler";
 
 export async function openCompareLink(
-  gitService: GitService,
-  statusBarService: StatusBarService
+  gitService: GitService
 ) {
   try {
     const remotes = await gitService.getRemotes();

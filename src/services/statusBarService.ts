@@ -6,6 +6,7 @@ export class StatusBarService {
   private buttons: vscode.StatusBarItem[];
   private lastCheckedBuildStatus: { tag: string, status: string } = { tag: '', status: '' };
   private lastBuildStatus: { tag: string; status: string; url: string } | null = null;
+  private ciConfigured: boolean = false;
 
   constructor(buttonCommands: string[], private context: vscode.ExtensionContext) {
     this.statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
@@ -17,6 +18,10 @@ export class StatusBarService {
       return button;
     });
     this.context.subscriptions.push(this.statusBarItem, this.buildStatusItem, ...this.buttons);
+  }
+
+  setCIConfigured(configured: boolean) {
+    this.ciConfigured = configured;
   }
 
   updateStatusBar(text: string, tooltip: string, command?: string) {
@@ -44,13 +49,13 @@ export class StatusBarService {
     switch (status) {
       case 'success':
         this.buildStatusItem.text = '$(check)';
-        this.buildStatusItem.tooltip = 'Build successful';
+        this.buildStatusItem.tooltip = `Build successful for tag ${tag}`;
         break;
       case 'failure':
       case 'cancelled':
       case 'timed_out':
         this.buildStatusItem.text = '$(x)';
-        this.buildStatusItem.tooltip = `Build ${status}`;
+        this.buildStatusItem.tooltip = `Build ${status} for tag ${tag}`;
         break;
       case 'action_required':
         this.buildStatusItem.text = '$(alert)';
@@ -75,7 +80,7 @@ export class StatusBarService {
         break;
       default:
         this.buildStatusItem.text = '$(question)';
-        this.buildStatusItem.tooltip = 'Build status unknown';
+        this.buildStatusItem.tooltip = `Build status unknown for tag ${tag}`;
     }
     this.buildStatusItem.show();
   }

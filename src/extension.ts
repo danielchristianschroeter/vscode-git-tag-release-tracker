@@ -141,7 +141,7 @@ function registerCommands(
       createInitialTag(gitService, statusBarService, defaultBranch, ciService)
     ),
     vscode.commands.registerCommand("extension.openCompareLink", () =>
-      openCompareLink(gitService, statusBarService)
+      openCompareLink(gitService)
     )
   );
 }

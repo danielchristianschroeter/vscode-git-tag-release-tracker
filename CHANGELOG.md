@@ -3,9 +3,12 @@
 ## [1.2.0]
 
 - Added: Automatic detection of CI/CD system (GitHub Actions or GitLab CI)
+- Added: Support for configuring multiple CI providers simultaneously
+- Changed: CI provider configuration structure in settings
 - Removed: Manual CI type selection from settings
 - Improved: Error handling and user feedback for tag creation and pushing
 - Fixed: Issue with tag creation and pushing synchronization
+- Updated: Documentation to reflect new multi-provider support and configuration
 
 ## [1.1.0]
 

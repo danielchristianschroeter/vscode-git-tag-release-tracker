@@ -5,6 +5,11 @@ import { showError } from "./errorHandler";
 import * as semver from "semver";
 import { CIService } from "../services/ciService";
 
+// Change this to a named export
+export const logError = (message: string, error: any) => {
+  console.error(message, error);
+};
+
 interface BuildStatusCache {
   [key: string]: { status: string; url: string; tag: string };
 }
@@ -16,6 +21,10 @@ const temporaryGitLabStatuses = ['waiting_for_resource', 'preparing', 'pending',
 
 function isTemporaryStatus(status: string): boolean {
   return temporaryGitHubStatuses.includes(status) || temporaryGitLabStatuses.includes(status) || status === 'unknown';
+}
+
+export function getConfiguration() {
+  return vscode.workspace.getConfiguration('gitTagReleaseTracker');
 }
 
 export async function updateStatusBar(
@@ -33,11 +42,11 @@ export async function updateStatusBar(
     const repoChanged = await gitService.initializeGit();
 
     if (repoChanged) {
-      // Clear the status bar when switching repositories
       statusBarService.clearStatusBar();
     }
 
-    if (!gitService.getCurrentRepo()) {
+    const currentRepo = gitService.getCurrentRepo();
+    if (!currentRepo) {
       console.log("No Git repository detected.");
       statusBarService.clearStatusBar();
       return;
@@ -55,20 +64,40 @@ export async function updateStatusBar(
 
     await gitService.getRemotes();
     const currentBranch = gitService.getCurrentBranch();
-    const currentRepo = gitService.getCurrentRepo();
 
-    if (!tagsResult || !tagsResult.latest) {
-      // No latest tag found, count all commits from default branch initially
+    let statusBarText = '';
+    let tooltip = '';
+    let command: string | undefined;
+
+    const ciType = gitService.detectCIType();
+    const latestTag = tagsResult?.latest || '';
+
+    const config = getConfiguration();
+    const ciProviders = config.get<{ [key: string]: { token: string, apiUrl: string } }>('ciProviders', {});
+
+    // Check if any CI provider is configured
+    const anyCIConfigured = Object.values(ciProviders).some(provider => !!provider.token && !!provider.apiUrl);
+
+    if (ciType && anyCIConfigured) {
+      const currentProvider = ciProviders[ciType];
+      if (currentProvider && currentProvider.token && currentProvider.apiUrl) {
+        await updateBuildStatus(gitService, statusBarService, ciService, latestTag, ciType);
+      } else {
+        console.log(`CI type ${ciType} detected but not configured.`);
+        statusBarService.updateBuildStatus('unknown', latestTag, '');
+      }
+    } else {
+      console.log('No CI configured or CI type not detected.');
+      statusBarService.hideBuildStatus();
+    }
+
+    if (!tagsResult || !latestTag) {
       console.log("No latest tag found, counting all commits as unreleased");
       const commits = await gitService.getCommits(defaultBranch, currentBranch);
       if (commits) {
-        const statusBarText = `${currentRepo}/${currentBranch} | ${commits.total} unreleased commits | No version available`;
-        const tooltip = `${commits.total} unreleased commits for ${currentRepo}/${currentBranch}`;
-        statusBarService.updateStatusBar(
-          statusBarText,
-          tooltip,
-          "extension.openCompareLink"
-        );
+        statusBarText = `${currentRepo}/${currentBranch} | ${commits.total} unreleased commits | No version available`;
+        tooltip = `${commits.total} unreleased commits for ${currentRepo}/${currentBranch}`;
+        command = "extension.openCompareLink";
         statusBarService.updateButton(
           0,
           "1.0.0",
@@ -78,134 +107,84 @@ export async function updateStatusBar(
       } else {
         console.log("No commits found for the entire branch");
       }
-      statusBarService.updateBuildStatus('unknown', 'N/A', '');
-      return;
-    }
-
-    const tagMatch = tagsResult.latest.match(
-      /^([^\d]*)(\d+)\.(\d+)\.(\d+)(.*)$/
-    );
-    if (!tagMatch) {
-      // No semantic versioning tag found
-      const statusBarText = `${currentRepo}/${currentBranch} | No version tag with semantic versioning found`;
-      const tooltip = "No version tag with semantic versioning found";
-      statusBarService.updateStatusBar(statusBarText, tooltip);
-      statusBarService.hideButtons();
-      statusBarService.updateBuildStatus('unknown', 'N/A', '');
-      return;
-    }
-
-    const [, prefix, major, minor, patch, suffix] = tagMatch;
-    const latestTag = tagsResult.latest;
-    const unreleasedCommits = await gitService.getUnreleasedCommits(latestTag, currentBranch);
-
-    const latestVersion = `${prefix}${major}.${minor}.${patch}${suffix}`;
-    const statusBarText = `${currentRepo}/${currentBranch} | ${unreleasedCommits} unreleased commits | ${latestVersion}`;
-    const tooltip = `${unreleasedCommits} unreleased commits for ${currentRepo}/${currentBranch} | Latest version: ${latestVersion}`;
-
-    statusBarService.updateStatusBar(statusBarText, tooltip);
-
-    if (currentBranch === defaultBranch && unreleasedCommits > 0) {
-      statusBarService.updateStatusBar(
-        statusBarText,
-        tooltip,
-        "extension.openCompareLink"
-      );
-
-      // Update version buttons
-      statusBarService.updateButton(
-        0,
-        `${semver.inc(`${major}.${minor}.${patch}`, "major")}`,
-        `Create and push major tag version ${prefix}${semver.inc(
-          `${major}.${minor}.${patch}`,
-          "major"
-        )}${suffix}`
-      );
-      statusBarService.updateButton(
-        1,
-        `${semver.inc(`${major}.${minor}.${patch}`, "minor")}`,
-        `Create and push minor tag version ${prefix}${semver.inc(
-          `${major}.${minor}.${patch}`,
-          "minor"
-        )}${suffix}`
-      );
-      statusBarService.updateButton(
-        2,
-        `${semver.inc(`${major}.${minor}.${patch}`, "patch")}`,
-        `Create and push patch tag version ${prefix}${semver.inc(
-          `${major}.${minor}.${patch}`,
-          "patch"
-        )}${suffix}`
-      );
-      statusBarService.showButtons();
     } else {
-      statusBarService.hideButtons();
-    }
-
-    // Check if CI configuration exists
-    const ciType = await gitService.hasCIConfiguration();
-    
-    // Check build status only if CI configuration exists
-    if (ciType) {
-      const cachedStatus = buildStatusCache[currentRepo];
-      if (repoChanged || !cachedStatus || cachedStatus.tag !== latestTag || isTemporaryStatus(cachedStatus.status)) {
-        try {
-          console.log('Fetching owner and repo...');
-          const { owner, repo } = await gitService.getOwnerAndRepo();
-          console.log('Owner and repo:', { owner, repo });
-
-          if (!owner || !repo) {
-            throw new Error('Unable to determine owner and repo');
-          }
-
-          console.log('Fetching build status...');
-          const { status, url, message } = await ciService.getBuildStatus(latestTag, owner, repo, ciType);
-          console.log(`Build status received in updateStatusBar: ${status}`);
-
-          if (message && status === 'error') {
-            vscode.window.showErrorMessage(message);
-          }
-
-          if (!isTemporaryStatus(status)) {
-            buildStatusCache[currentRepo] = { status, url, tag: latestTag };
-          }
-          statusBarService.updateBuildStatus(status, latestTag, url);
-          vscode.commands.executeCommand('gitTagReleaseTracker._buildStatusUrl', url);
-        } catch (error) {
-          console.error('Error updating build status:', error);
-          statusBarService.updateBuildStatus('error', latestTag, '');
-          // Set a default URL even in case of an error
-          const { owner, repo } = await gitService.getOwnerAndRepo();
-          const defaultUrl = ciType === 'github' 
-            ? `https://github.com/${owner}/${repo}/actions`
-            : `https://gitlab.com/${owner}/${repo}/-/pipelines`;
-          vscode.commands.executeCommand('gitTagReleaseTracker._buildStatusUrl', defaultUrl);
-          vscode.window.showErrorMessage('Error fetching build status. Please check your CI configuration and token.');
-        }
+      const tagMatch = latestTag.match(
+        /^([^\d]*)(\d+)\.(\d+)\.(\d+)(.*)$/
+      );
+      if (!tagMatch) {
+        statusBarText = `${currentRepo}/${currentBranch} | No version tag with semantic versioning found`;
+        tooltip = "No version tag with semantic versioning found";
+        statusBarService.hideButtons();
       } else {
-        console.log('Using cached build status');
-        const { status, url, tag } = cachedStatus;
-        statusBarService.updateBuildStatus(status, tag, url);
-        vscode.commands.executeCommand('gitTagReleaseTracker._buildStatusUrl', url);
+        const [, prefix, major, minor, patch, suffix] = tagMatch;
+        const unreleasedCommits = await gitService.getUnreleasedCommits(latestTag, currentBranch);
+
+        statusBarText = `${currentRepo}/${currentBranch} | ${unreleasedCommits} unreleased commits | ${latestTag}`;
+        tooltip = `${unreleasedCommits} unreleased commits for ${currentRepo}/${currentBranch} | Latest version: ${latestTag}`;
+
+        if (currentBranch === defaultBranch && unreleasedCommits > 0) {
+          command = "extension.openCompareLink";
+          updateVersionButtons(statusBarService, major, minor, patch, prefix, suffix);
+        } else {
+          statusBarService.hideButtons();
+        }
       }
-    } else {
-      // Clear build status if no CI configuration is found
-      statusBarService.updateBuildStatus('', '', '');
-      vscode.commands.executeCommand('gitTagReleaseTracker._buildStatusUrl', '');
     }
 
-    if (unreleasedCommits > 0) {
-      statusBarService.updateStatusBar(
-        statusBarText,
-        tooltip,
-        "extension.openCompareLink"
-      );
+    statusBarService.updateStatusBar(statusBarText, tooltip, command);
+  } catch (error) {
+    logError("Error updating status bar:", error); // Use the exported function
+    statusBarService.clearStatusBar();
+    if (error instanceof Error) {
+      showError(error, "Error fetching git data");
     } else {
-      statusBarService.updateStatusBar(statusBarText, tooltip);
+      showError(new Error(String(error)), "Error fetching git data");
+    }
+  }
+}
+
+function updateVersionButtons(statusBarService: StatusBarService, major: string, minor: string, patch: string, prefix: string, suffix: string) {
+  ['major', 'minor', 'patch'].forEach((versionType, index) => {
+    const newVersion = semver.inc(`${major}.${minor}.${patch}`, versionType as semver.ReleaseType);
+    statusBarService.updateButton(
+      index,
+      `${newVersion}`,
+      `Create and push ${versionType} tag version ${prefix}${newVersion}${suffix}`
+    );
+  });
+  statusBarService.showButtons();
+}
+
+async function updateBuildStatus(
+  gitService: GitService, 
+  statusBarService: StatusBarService, 
+  ciService: CIService, 
+  latestTag: string, 
+  ciType: 'github' | 'gitlab'
+) {
+  try {
+    const { owner, repo } = await gitService.getOwnerAndRepo();
+    if (!owner || !repo) {
+      throw new Error('Unable to determine owner and repo');
+    }
+
+    const { status, url, message } = await ciService.getBuildStatus(latestTag, owner, repo, ciType);
+    console.log(`Build status received in updateStatusBar: ${status}`);
+
+    statusBarService.updateBuildStatus(status, latestTag, url);
+    vscode.commands.executeCommand('gitTagReleaseTracker._buildStatusUrl', url);
+
+    if (message && status === 'error') {
+      vscode.window.showErrorMessage(message);
     }
   } catch (error) {
-    console.log("Error updating status bar:", error);
-    statusBarService.clearStatusBar();
-    showError(error, "Error fetching git data");
+    console.error('Error updating build status:', error);
+    statusBarService.updateBuildStatus('error', latestTag, '');
+    const { owner, repo } = await gitService.getOwnerAndRepo();
+    const defaultUrl = ciType === 'github' 
+      ? `https://github.com/${owner}/${repo}/actions`
+      : `https://gitlab.com/${owner}/${repo}/-/pipelines`;
+    vscode.commands.executeCommand('gitTagReleaseTracker._buildStatusUrl', defaultUrl);
+    vscode.window.showErrorMessage('Error fetching build status. Please check your CI configuration and token.');
   }
 }
