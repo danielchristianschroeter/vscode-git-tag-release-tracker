@@ -1,5 +1,6 @@
 import { CIService } from "../services/ciService";
 import { StatusBarService } from "../services/statusBarService";
+import { GitService } from "../services/gitService";
 import * as vscode from "vscode";
 
 export async function checkBuildStatus(

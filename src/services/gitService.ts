@@ -177,7 +177,7 @@ export class GitService {
       throw new Error("Git is not initialized");
     }
     try {
-      await this.git.push('origin', tag);
+      await this.git?.push('origin', tag);
       console.log(`Tag ${tag} pushed to remote`);
     } catch (error) {
       console.error(`Error pushing tag ${tag}:`, error);
@@ -187,9 +187,9 @@ export class GitService {
 
   async getRemoteUrl(): Promise<string> {
     try {
-      const remotes = await this.git.getRemotes(true);
+      const remotes = await this.git?.getRemotes(true);
       console.log('All remotes:', remotes);
-      const originRemote = remotes.find(remote => remote.name === 'origin');
+      const originRemote = remotes?.find(remote => remote.name === 'origin');
       if (originRemote) {
         console.log('Origin remote:', originRemote);
         return originRemote.refs.push || originRemote.refs.fetch || '';

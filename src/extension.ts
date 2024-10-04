@@ -110,7 +110,7 @@ export function activate(context: vscode.ExtensionContext) {
         // Start polling for build status
         pollBuildStatus(version, gitService, statusBarService, ciService);
       } catch (error) {
-        vscode.window.showErrorMessage(`Failed to create and push version tag: ${error.message}`);
+        vscode.window.showErrorMessage(`Failed to create and push version tag: ${(error as Error).message}`);
       }
     })
   );
