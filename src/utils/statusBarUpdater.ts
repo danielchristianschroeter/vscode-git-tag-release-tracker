@@ -81,8 +81,8 @@ export async function updateStatusBar(
     if (ciType && anyCIConfigured) {
       const currentProvider = ciProviders[ciType];
       if (currentProvider && currentProvider.token && currentProvider.apiUrl) {
-        await updateBuildStatus(gitService, statusBarService, ciService, latestTag, ciType, true);
-        await updateBranchBuildStatus(gitService, statusBarService, ciService, currentBranch, ciType, false);
+        await updateBuildStatus(gitService, statusBarService, ciService, latestTag, ciType);
+        await updateBranchBuildStatus(gitService, statusBarService, ciService, currentBranch, ciType);
       } else {
         console.log(`CI type ${ciType} detected but not configured.`);
         statusBarService.updateBuildStatus('unknown', latestTag, '');
@@ -167,8 +167,7 @@ async function updateBuildStatus(
   statusBarService: StatusBarService, 
   ciService: CIService, 
   latestTag: string, 
-  ciType: 'github' | 'gitlab',
-  isTag: boolean
+  ciType: 'github' | 'gitlab'
 ) {
   try {
     const { owner, repo } = await gitService.getOwnerAndRepo();
@@ -176,7 +175,7 @@ async function updateBuildStatus(
       throw new Error('Unable to determine owner and repo');
     }
 
-    const { status, url, message } = await ciService.getBuildStatus(latestTag, owner, repo, ciType, isTag);
+    const { status, url, message } = await ciService.getBuildStatus(latestTag, owner, repo, ciType, true);
     console.log(`Build status received in updateStatusBar: ${status}`);
 
     statusBarService.updateBuildStatus(status, latestTag, url);
@@ -202,8 +201,7 @@ async function updateBranchBuildStatus(
   statusBarService: StatusBarService,
   ciService: CIService,
   currentBranch: string,
-  ciType: 'github' | 'gitlab',
-  isTag: boolean
+  ciType: 'github' | 'gitlab'
 ) {
   try {
     const { owner, repo } = await gitService.getOwnerAndRepo();
@@ -211,7 +209,7 @@ async function updateBranchBuildStatus(
       throw new Error('Unable to determine owner and repo');
     }
 
-    const { status, url, message } = await ciService.getBuildStatus(currentBranch, owner, repo, ciType, isTag);
+    const { status, url, message } = await ciService.getBuildStatus(currentBranch, owner, repo, ciType, false);
     console.log(`Branch build status received in updateStatusBar: ${status}`);
 
     statusBarService.updateBranchBuildStatus(status, currentBranch, url);
