@@ -4,8 +4,8 @@ import { StatusBarService } from "../services/statusBarService";
 import { showError } from "./errorHandler";
 import * as semver from "semver";
 import { CIService } from "../services/ciService";
+import { debounce } from "./debounce";
 
-// Change this to a named export
 export const logError = (message: string, error: any) => {
   console.error(message, error);
 };
@@ -43,6 +43,7 @@ export async function updateStatusBar(
 
     if (repoChanged) {
       statusBarService.clearStatusBar();
+      ciService.clearCache();
     }
 
     const currentRepo = gitService.getCurrentRepo();
@@ -75,20 +76,22 @@ export async function updateStatusBar(
     const config = getConfiguration();
     const ciProviders = config.get<{ [key: string]: { token: string, apiUrl: string } }>('ciProviders', {});
 
-    // Check if any CI provider is configured
     const anyCIConfigured = Object.values(ciProviders).some(provider => !!provider.token && !!provider.apiUrl);
 
     if (ciType && anyCIConfigured) {
       const currentProvider = ciProviders[ciType];
       if (currentProvider && currentProvider.token && currentProvider.apiUrl) {
-        await updateBuildStatus(gitService, statusBarService, ciService, latestTag, ciType);
+        await updateBuildStatus(gitService, statusBarService, ciService, latestTag, ciType, true);
+        await updateBranchBuildStatus(gitService, statusBarService, ciService, currentBranch, ciType, false);
       } else {
         console.log(`CI type ${ciType} detected but not configured.`);
         statusBarService.updateBuildStatus('unknown', latestTag, '');
+        statusBarService.updateBranchBuildStatus('unknown', currentBranch, '');
       }
     } else {
       console.log('No CI configured or CI type not detected.');
       statusBarService.hideBuildStatus();
+      statusBarService.hideBranchBuildStatus();
     }
 
     if (!tagsResult || !latestTag) {
@@ -98,6 +101,9 @@ export async function updateStatusBar(
         statusBarText = `${currentRepo}/${currentBranch} | ${commits.total} unreleased commits | No version available`;
         tooltip = `${commits.total} unreleased commits for ${currentRepo}/${currentBranch}`;
         command = "extension.openCompareLink";
+        
+        // Show only the initial version button
+        statusBarService.hideButtons();
         statusBarService.updateButton(
           0,
           "1.0.0",
@@ -106,6 +112,7 @@ export async function updateStatusBar(
         statusBarService.showButtons();
       } else {
         console.log("No commits found for the entire branch");
+        statusBarService.hideButtons();
       }
     } else {
       const tagMatch = latestTag.match(
@@ -119,7 +126,7 @@ export async function updateStatusBar(
         const [, prefix, major, minor, patch, suffix] = tagMatch;
         const unreleasedCommits = await gitService.getUnreleasedCommits(latestTag, currentBranch);
 
-        statusBarText = `${currentRepo}/${currentBranch} | ${unreleasedCommits} unreleased commits | ${latestTag}`;
+        statusBarText = `${currentRepo}/${currentBranch} | ${unreleasedCommits} unreleased commits`;
         tooltip = `${unreleasedCommits} unreleased commits for ${currentRepo}/${currentBranch} | Latest version: ${latestTag}`;
 
         if (currentBranch === defaultBranch && unreleasedCommits > 0) {
@@ -133,7 +140,7 @@ export async function updateStatusBar(
 
     statusBarService.updateStatusBar(statusBarText, tooltip, command);
   } catch (error) {
-    logError("Error updating status bar:", error); // Use the exported function
+    logError("Error updating status bar:", error);
     statusBarService.clearStatusBar();
     if (error instanceof Error) {
       showError(error, "Error fetching git data");
@@ -160,7 +167,8 @@ async function updateBuildStatus(
   statusBarService: StatusBarService, 
   ciService: CIService, 
   latestTag: string, 
-  ciType: 'github' | 'gitlab'
+  ciType: 'github' | 'gitlab',
+  isTag: boolean
 ) {
   try {
     const { owner, repo } = await gitService.getOwnerAndRepo();
@@ -168,7 +176,7 @@ async function updateBuildStatus(
       throw new Error('Unable to determine owner and repo');
     }
 
-    const { status, url, message } = await ciService.getBuildStatus(latestTag, owner, repo, ciType);
+    const { status, url, message } = await ciService.getBuildStatus(latestTag, owner, repo, ciType, isTag);
     console.log(`Build status received in updateStatusBar: ${status}`);
 
     statusBarService.updateBuildStatus(status, latestTag, url);
@@ -187,4 +195,62 @@ async function updateBuildStatus(
     vscode.commands.executeCommand('gitTagReleaseTracker._buildStatusUrl', defaultUrl);
     vscode.window.showErrorMessage('Error fetching build status. Please check your CI configuration and token.');
   }
+}
+
+async function updateBranchBuildStatus(
+  gitService: GitService,
+  statusBarService: StatusBarService,
+  ciService: CIService,
+  currentBranch: string,
+  ciType: 'github' | 'gitlab',
+  isTag: boolean
+) {
+  try {
+    const { owner, repo } = await gitService.getOwnerAndRepo();
+    if (!owner || !repo) {
+      throw new Error('Unable to determine owner and repo');
+    }
+
+    const { status, url, message } = await ciService.getBuildStatus(currentBranch, owner, repo, ciType, isTag);
+    console.log(`Branch build status received in updateStatusBar: ${status}`);
+
+    statusBarService.updateBranchBuildStatus(status, currentBranch, url);
+    vscode.commands.executeCommand('gitTagReleaseTracker._branchBuildStatusUrl', url);
+
+    if (message && status === 'error') {
+      vscode.window.showErrorMessage(message);
+    }
+  } catch (error) {
+    console.error('Error updating branch build status:', error);
+    statusBarService.updateBranchBuildStatus('error', currentBranch, '');
+    const { owner, repo } = await gitService.getOwnerAndRepo();
+    const defaultUrl = ciType === 'github'
+      ? `https://github.com/${owner}/${repo}/actions`
+      : `https://gitlab.com/${owner}/${repo}/-/pipelines`;
+    vscode.commands.executeCommand('gitTagReleaseTracker._branchBuildStatusUrl', defaultUrl);
+    vscode.window.showErrorMessage('Error fetching branch build status. Please check your CI configuration and token.');
+  }
+}
+
+export function createStatusBarUpdater(
+  gitService: GitService,
+  statusBarService: StatusBarService,
+  defaultBranch: string,
+  ciService: CIService
+) {
+  const updateStatusBarCallback = async () => {
+    console.log("Updating status bar...");
+    try {
+      await updateStatusBar(gitService, statusBarService, defaultBranch, ciService);
+    } catch (error) {
+      console.log("Error updating status bar:", error);
+    }
+  };
+
+  const debouncedUpdateStatusBar = debounce(updateStatusBarCallback, 300);
+
+  return {
+    updateNow: updateStatusBarCallback,
+    debouncedUpdate: debouncedUpdateStatusBar
+  };
 }

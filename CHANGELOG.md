@@ -9,6 +9,9 @@
 - Improved: Error handling and user feedback for tag creation and pushing
 - Fixed: Issue with tag creation and pushing synchronization
 - Updated: Documentation to reflect new multi-provider support and configuration
+- Added: New command "Refresh Branch Build Status" for manual refresh of build status
+- Improved: Error handling and feedback for build status refresh
+- Updated: Documentation to include information about the new refresh command
 
 ## [1.1.0]
 

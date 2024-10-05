@@ -6,6 +6,7 @@ import { showError } from "../utils/errorHandler";
 import { updateStatusBar } from "../utils/statusBarUpdater";
 import { CIService } from "../services/ciService";
 import { checkBuildStatus } from "../utils/ciUtils";
+import { pollBuildStatusImmediate } from "./pushAndCheckBuild";
 
 export async function createTag(
   type: "major" | "minor" | "patch",
@@ -47,9 +48,17 @@ export async function createTag(
         
         // Start checking build status
         checkBuildStatus(newTag, owner, repo, ciService, statusBarService, gitService);
+
+        const ciType = gitService.detectCIType();
+        if (!ciType) {
+          throw new Error('Unable to detect CI type');
+        }
+
+        // Start polling for tag build status
+        await pollBuildStatusImmediate(newTag, owner, repo, ciType, ciService, statusBarService, true);
       }
     }
   } catch (error) {
-    showError(error, "Error creating tag");
+    showError(error, "Error creating and pushing tag");
   }
 }

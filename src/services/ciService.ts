@@ -1,13 +1,25 @@
 import * as vscode from 'vscode';
-import axios, { AxiosError } from 'axios';
+import axios, { AxiosError, AxiosResponse } from 'axios';
 
 interface CIProvider {
   token: string;
   apiUrl: string;
 }
 
+interface BuildStatusCacheEntry {
+  status: string;
+  url: string;
+  message?: string;
+  timestamp: number;
+}
+
 export class CIService {
   private providers: { [key: string]: CIProvider };
+  private buildStatusCache: { [key: string]: BuildStatusCacheEntry } = {};
+  private defaultCacheTTL = 60000; // 1 minute cache TTL for most statuses
+  private inProgressCacheTTL = 5000; // 5 seconds cache TTL for in-progress statuses
+  private cacheBypassTimeout: { [key: string]: number } = {};
+  private rateLimitWarningThreshold = 0.95; // Warn when 95% of the rate limit is used
 
   constructor() {
     this.providers = this.loadProviders();
@@ -22,8 +34,38 @@ export class CIService {
     return ciProviders;
   }
 
-  async getBuildStatus(tag: string, owner: string, repo: string, ciType: 'github' | 'gitlab'): Promise<{ status: string, url: string, message?: string }> {
-    console.log('getBuildStatus called with:', { tag, owner, repo, ciType });
+  async getBuildStatus(ref: string, owner: string, repo: string, ciType: 'github' | 'gitlab', isTag: boolean): Promise<{ status: string, url: string, message?: string }> {
+    console.log('getBuildStatus called with:', { ref, owner, repo, ciType, isTag });
+
+    const cacheKey = `${owner}/${repo}/${ref}/${ciType}`;
+
+    // Check if we should bypass the cache
+    if (this.cacheBypassTimeout[cacheKey] && Date.now() < this.cacheBypassTimeout[cacheKey]) {
+      console.log('Bypassing cache for recent push');
+      return this.fetchFreshBuildStatus(ref, owner, repo, ciType, isTag);
+    }
+
+    const cachedResult = this.buildStatusCache[cacheKey];
+
+    if (cachedResult) {
+      const isInProgress = ['pending', 'in_progress', 'queued', 'requested', 'waiting'].includes(cachedResult.status);
+      const cacheTTL = isInProgress ? this.inProgressCacheTTL : this.defaultCacheTTL;
+
+      if (Date.now() - cachedResult.timestamp < cacheTTL) {
+        console.log('Returning cached build status');
+        return {
+          status: cachedResult.status,
+          url: cachedResult.url,
+          message: cachedResult.message
+        };
+      }
+    }
+
+    return this.fetchFreshBuildStatus(ref, owner, repo, ciType, isTag);
+  }
+
+  private async fetchFreshBuildStatus(ref: string, owner: string, repo: string, ciType: 'github' | 'gitlab', isTag: boolean): Promise<{ status: string, url: string, message?: string }> {
+    console.log(`Fetching fresh build status for ${ref} (${owner}/${repo}) using ${ciType}`);
 
     const provider = this.providers[ciType];
     if (!provider || !provider.token || !provider.apiUrl) {
@@ -37,13 +79,27 @@ export class CIService {
     }
 
     try {
+      let result;
       if (ciType === 'github') {
-        return await this.getGitHubBuildStatus(tag, owner, repo, provider);
+        result = await this.getGitHubBuildStatus(ref, owner, repo, provider, isTag);
       } else if (ciType === 'gitlab') {
-        return await this.getGitLabBuildStatus(tag, owner, repo, provider);
+        result = await this.getGitLabBuildStatus(ref, owner, repo, provider, isTag);
       } else {
         throw new Error('Unsupported CI type');
       }
+
+      console.log(`Fetched build status:`, result);
+
+      // Check rate limit after successful API call
+      this.checkRateLimit(result.response, ciType);
+
+      // Cache the result
+      this.buildStatusCache[`${owner}/${repo}/${ref}/${ciType}`] = {
+        ...result,
+        timestamp: Date.now()
+      };
+
+      return result;
     } catch (error) {
       console.error('Error fetching build status:', error);
       let message = 'An error occurred while fetching the build status.';
@@ -60,99 +116,130 @@ export class CIService {
     }
   }
 
-  private async getGitHubBuildStatus(tag: string, owner: string, repo: string, provider: CIProvider): Promise<{ status: string, url: string, message?: string }> {
-    const workflowsUrl = `${provider.apiUrl}/repos/${owner}/${repo}/actions/workflows`;
-    console.log('Fetching workflows from:', workflowsUrl);
+  private async getGitHubBuildStatus(ref: string, owner: string, repo: string, provider: CIProvider, isTag: boolean): Promise<{ status: string, url: string, message?: string, response: AxiosResponse }> {
+    const runsUrl = `${provider.apiUrl}/repos/${owner}/${repo}/actions/runs`;
+    console.log(`Fetching workflow runs for ${ref} from:`, runsUrl);
 
-    const workflowsResponse = await axios.get(workflowsUrl, {
-      headers: {
-        Authorization: `Bearer ${provider.token}`,
-        Accept: 'application/vnd.github+json',
-        'X-GitHub-Api-Version': '2022-11-28'
+    try {
+      const runsResponse = await axios.get(runsUrl, {
+        headers: {
+          Authorization: `Bearer ${provider.token}`,
+          Accept: 'application/vnd.github+json',
+          'X-GitHub-Api-Version': '2022-11-28'
+        },
+        params: {
+          per_page: 30, // Fetch more runs to ensure we catch the relevant one
+          exclude_pull_requests: true
+        }
+      });
+
+      console.log('Runs response:', runsResponse.data);
+
+      // Filter runs based on whether ref is a branch or a tag
+      const relevantRuns = runsResponse.data.workflow_runs.filter((run: any) => 
+        isTag ? run.head_commit.id === ref || run.head_branch === ref
+              : run.head_branch === ref
+      );
+
+      if (relevantRuns.length === 0) {
+        console.log(`No relevant workflow runs found for ${ref}`);
+        return { 
+          status: 'no_runs', 
+          url: `https://github.com/${owner}/${repo}/actions`,
+          message: `No relevant workflow runs found for ${isTag ? 'tag' : 'branch'} ${ref}`,
+          response: runsResponse
+        };
       }
-    });
 
-    console.log('Workflows response:', workflowsResponse.data);
+      const latestRun = relevantRuns[0];
+      const status = latestRun.status;
+      const conclusion = latestRun.conclusion;
 
-    if (workflowsResponse.data.total_count === 0) {
-      console.log('No workflows found in the repository.');
-      return { status: 'unknown', url: `https://github.com/${owner}/${repo}/actions` };
-    }
-
-    const workflowId = workflowsResponse.data.workflows[0].id;
-    const runsUrl = `${provider.apiUrl}/repos/${owner}/${repo}/actions/workflows/${workflowId}/runs`;
-    console.log('Fetching runs from:', runsUrl);
-
-    const runsResponse = await axios.get(runsUrl, {
-      headers: {
-        Authorization: `Bearer ${provider.token}`,
-        Accept: 'application/vnd.github+json',
-        'X-GitHub-Api-Version': '2022-11-28'
-      },
-      params: {
-        branch: tag,
-        per_page: 1
+      // Determine the final status based on both status and conclusion
+      let finalStatus = status;
+      if (status === 'completed') {
+        finalStatus = conclusion || 'unknown';
       }
-    });
 
-    console.log('Runs response:', runsResponse.data);
-
-    if (runsResponse.data.total_count === 0) {
-      console.log(`No runs found for tag: ${tag}`);
+      console.log(`GitHub CI returning status: ${status}, conclusion: ${conclusion}, final status: ${finalStatus} for ${isTag ? 'tag' : 'branch'} ${ref}`);
       return { 
-        status: 'pending', 
+        status: finalStatus,
+        url: latestRun.html_url,
+        message: `GitHub CI returning status: ${finalStatus} for ${isTag ? 'tag' : 'branch'} ${ref}`,
+        response: runsResponse
+      };
+    } catch (error) {
+      console.error('Error fetching GitHub workflow runs:', error);
+      return {
+        status: 'error',
         url: `https://github.com/${owner}/${repo}/actions`,
-        message: `No runs found for tag: ${tag}`
+        message: `Error fetching workflow runs for ${ref}`,
+        response: {} as AxiosResponse
       };
     }
-
-    const latestRun = runsResponse.data.workflow_runs[0];
-    const status = latestRun.status === 'completed' ? latestRun.conclusion : latestRun.status;
-    console.log(`GitHub CI returning status: ${status} for tag: ${tag}`);
-    return { 
-      status: status,
-      url: latestRun.html_url,
-      message: `GitHub CI returning status: ${status} for tag: ${tag}`
-    };
   }
 
-  private async getGitLabBuildStatus(tag: string, owner: string, repo: string, provider: CIProvider): Promise<{ status: string, url: string, message?: string }> {
+  private async getGitLabBuildStatus(ref: string, owner: string, repo: string, provider: CIProvider, isTag: boolean): Promise<{ status: string, url: string, message?: string, response: AxiosResponse }> {
     const projectId = encodeURIComponent(`${owner}/${repo}`);
     const pipelinesUrl = `${provider.apiUrl}/api/v4/projects/${projectId}/pipelines`;
     console.log('Fetching pipelines from:', pipelinesUrl);
 
-    const pipelinesResponse = await axios.get(pipelinesUrl, {
-      headers: {
-        'PRIVATE-TOKEN': provider.token
-      },
-      params: {
-        ref: tag,
-        order_by: 'id',
-        sort: 'desc',
-        per_page: 1
+    try {
+      const pipelinesResponse = await axios.get(pipelinesUrl, {
+        headers: {
+          'PRIVATE-TOKEN': provider.token
+        },
+        params: {
+          ref: ref,
+          order_by: 'id',
+          sort: 'desc',
+          per_page: 1
+        }
+      });
+
+      console.log('Pipelines response:', pipelinesResponse.data);
+
+      if (pipelinesResponse.data.length === 0) {
+        console.log(`No pipelines found for ${isTag ? 'tag' : 'branch'}: ${ref}`);
+        return { 
+          status: 'no_runs', 
+          url: `${provider.apiUrl}/${owner}/${repo}/-/pipelines`,
+          message: `No pipelines found for ${isTag ? 'tag' : 'branch'} ${ref}`,
+          response: pipelinesResponse
+        };
       }
-    });
 
-    console.log('Pipelines response:', pipelinesResponse.data);
+      const latestPipeline = pipelinesResponse.data[0];
+      
+      // Check if the pipeline's ref matches the requested ref
+      if (latestPipeline.ref !== ref) {
+        console.log(`No matching pipeline found for ${isTag ? 'tag' : 'branch'}: ${ref}`);
+        return { 
+          status: 'no_runs', 
+          url: `${provider.apiUrl}/${owner}/${repo}/-/pipelines`,
+          message: `No matching pipeline found for ${isTag ? 'tag' : 'branch'} ${ref}`,
+          response: pipelinesResponse
+        };
+      }
 
-    if (pipelinesResponse.data.length === 0) {
-      console.log(`No pipelines found for tag: ${tag}`);
+      const status = this.mapGitLabStatus(latestPipeline.status);
+      const pipelineId = latestPipeline.id || 'latest';
+      console.log(`GitLab CI returning status: ${status} for ${isTag ? 'tag' : 'branch'}: ${ref}`);
       return { 
-        status: 'pending', 
+        status: status,
+        url: `${provider.apiUrl}/${owner}/${repo}/-/pipelines/${pipelineId}`,
+        message: `GitLab CI returning status: ${status} for ${isTag ? 'tag' : 'branch'} ${ref}`,
+        response: pipelinesResponse
+      };
+    } catch (error) {
+      console.error('Error fetching GitLab pipelines:', error);
+      return {
+        status: 'error',
         url: `${provider.apiUrl}/${owner}/${repo}/-/pipelines`,
-        message: `No pipelines found for tag: ${tag}`
+        message: `Error fetching pipelines for ${isTag ? 'tag' : 'branch'} ${ref}`,
+        response: {} as AxiosResponse
       };
     }
-
-    const latestPipeline = pipelinesResponse.data[0];
-    const status = this.mapGitLabStatus(latestPipeline.status);
-    const pipelineId = latestPipeline.id || 'latest'; // Add this line
-    console.log(`GitLab CI returning status: ${status} for tag: ${tag}`);
-    return { 
-      status: status,
-      url: `https://gitlab.com/${owner}/${repo}/-/pipelines/${pipelineId}`, // Use pipelineId here
-      message: `GitLab CI returning status: ${status} for tag: ${tag}`
-    };
   }
 
   private mapGitLabStatus(gitlabStatus: string): string {
@@ -166,6 +253,70 @@ export class CIService {
       case 'created': return 'queued';
       case 'manual': return 'action_required';
       default: return 'unknown';
+    }
+  }
+
+  clearCache() {
+    this.buildStatusCache = {};
+  }
+
+  clearCacheForBranch(branch: string, owner: string, repo: string, ciType: 'github' | 'gitlab') {
+    const cacheKey = `${owner}/${repo}/${branch}/${ciType}`;
+    delete this.buildStatusCache[cacheKey];
+    
+    // Set a timeout to bypass cache for this branch for the next 2 minutes
+    this.cacheBypassTimeout[cacheKey] = Date.now() + 120000; // 2 minutes
+  }
+
+  async getImmediateBuildStatus(ref: string, owner: string, repo: string, ciType: 'github' | 'gitlab', isTag: boolean): Promise<{ status: string, url: string, message?: string }> {
+    console.log('Immediate build status check for:', { ref, owner, repo, ciType, isTag });
+    const result = await this.fetchFreshBuildStatus(ref, owner, repo, ciType, isTag);
+    
+    // Cache the result
+    const cacheKey = `${owner}/${repo}/${ref}/${ciType}`;
+    this.buildStatusCache[cacheKey] = {
+      ...result,
+      timestamp: Date.now()
+    };
+
+    return result;
+  }
+
+  private checkRateLimit(response: AxiosResponse, ciType: 'github' | 'gitlab') {
+    const headers = response.headers;
+    let limit: number, remaining: number, reset: string | number;
+
+    console.log(`Checking rate limit for ${ciType}`);
+    console.log(`Response headers:`, headers);
+
+    if (ciType === 'github') {
+      limit = parseInt(headers['x-ratelimit-limit'] || '0');
+      remaining = parseInt(headers['x-ratelimit-remaining'] || '0');
+      reset = new Date(parseInt(headers['x-ratelimit-reset'] || '0') * 1000).toLocaleTimeString();
+    } else if (ciType === 'gitlab') {
+      limit = parseInt(headers['ratelimit-limit'] || '0');
+      remaining = parseInt(headers['ratelimit-remaining'] || '0');
+      reset = headers['ratelimit-reset'] || 'unknown';
+    } else {
+      console.log(`Unknown CI type: ${ciType}, skipping rate limit check`);
+      return;
+    }
+
+    console.log(`Rate limit info - Limit: ${limit}, Remaining: ${remaining}, Reset: ${reset}`);
+
+    if (limit > 0) {
+      const usagePercentage = (limit - remaining) / limit;
+      console.log(`Usage percentage: ${(usagePercentage * 100).toFixed(1)}%`);
+      
+      if (usagePercentage >= this.rateLimitWarningThreshold) {
+        const warningMessage = `${ciType.toUpperCase()} API rate limit is at ${(usagePercentage * 100).toFixed(1)}%. Limit resets at ${reset}. Please be cautious with further requests.`;
+        console.log(`Showing warning: ${warningMessage}`);
+        vscode.window.showWarningMessage(warningMessage);
+      } else {
+        console.log(`Usage below warning threshold`);
+      }
+    } else {
+      console.log(`Invalid rate limit value: ${limit}`);
     }
   }
 }

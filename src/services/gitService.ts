@@ -267,6 +267,10 @@ export class GitService {
 
     return null;
   }
+
+  async pushChanges(branch: string): Promise<void> {
+    await this.git?.push('origin', branch);
+  }
 }
 
 function isGitDirectory(dir: string): boolean {

@@ -60,6 +60,26 @@
       {
         "command": "extension.openCompareLink",
         "title": "Open Compare Link"
+      },
+      {
+        "command": "extension.pushAndCheckBuild",
+        "title": "Push Changes and Check Build Status"
+      },
+      {
+        "command": "extension.openBranchBuildStatus",
+        "title": "Open Branch Build Status"
+      },
+      {
+        "command": "extension.refreshBranchBuildStatus",
+        "title": "Refresh Branch Build Status"
+      },
+      {
+        "command": "extension.createInitialTag",
+        "title": "Create Initial Tag"
+      },
+      {
+        "command": "extension.openBuildStatus",
+        "title": "Open Build Status"
       }
     ],
     "configuration": {
@@ -103,6 +123,11 @@
               }
             }
           }
+        },
+        "gitTagReleaseTracker.refreshInterval": {
+          "type": "number",
+          "default": 300,
+          "description": "Interval (in seconds) to refresh the current branch build status"
         }
       }
     }

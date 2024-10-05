@@ -10,13 +10,14 @@ The **Git Tag Release Tracker** extension for Visual Studio Code allows you to m
 - **Initial Tag Creation**: Easily create an initial version tag (1.0.0) if no tags are present.
 - **Compare Commits**: Open a compare link to view changes between the latest tag and the current branch on GitHub/GitLab.
 - **CI/CD Integration**: Shows the build status of the latest tag directly in the status bar for both GitHub Actions and GitLab CI/CD.
+- **Manual Refresh**: Refresh the build status manually using the "Refresh Build Status" command. (This is needed because the status bar item is updated periodically, but not in response to all events.)
 
 ### Screenshots
 
 <p align="center">
-<img src="images/status-bar-create-initial-version.png" alt="Create Initial Version" width=80%>
+<img src="images/status-bar-create-and-push-initial-version-tag.png" alt="Create Initial Version Tag" width=80%>
 <br/>
-<em>Easily create an initial version (1.0.0) if no tags are present.</em>
+<em>Easily create an initial version tag (1.0.0) if no tags are present.</em>
 </p>
 
 <p align="center">
@@ -32,9 +33,15 @@ The **Git Tag Release Tracker** extension for Visual Studio Code allows you to m
 </p>
 
 <p align="center">
-<img src="images/status-bar-show-github-workflow-gitlab-pipeline-build-status.png" alt="Preserve Prefix and Suffix" width=80%>
+<img src="images/status-bar-show-github-workflow-gitlab-pipeline-build-status-for-tag.png" alt="Workflow/Pipeline build status for tag" width=80%>
 <br/>
-<em>Get current build status for Github Action Workflows or GitLab Pipelines.</em>
+<em>Get current build status for Github Action Workflows or GitLab Pipelines for tag.</em>
+</p>
+
+<p align="center">
+<img src="images/status-bar-show-github-workflow-gitlab-pipeline-build-status-for-branch.png" alt="Workflow/Pipeline build status for branch" width=80%>
+<br/>
+<em>Get current build status for Github Action Workflows or GitLab Pipelines for branch.</em>
 </p>
 
 ## Requirements
@@ -85,3 +92,11 @@ This extension contributes the following settings:
 The extension will automatically detect and use the appropriate CI system for each repository.
 
 Note: You can configure both GitHub and GitLab providers simultaneously if you work with both platforms.
+
+## Commands
+
+This extension contributes the following commands:
+
+- `Git Tag Release Tracker: Refresh Branch Build Status`: Manually refresh the build status for the current branch.
+
+You can access this command through the Command Palette (Ctrl+Shift+P or Cmd+Shift+P on macOS) by typing "Git Tag Release Tracker".

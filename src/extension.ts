@@ -5,119 +5,55 @@ import { createInterval } from "./utils/intervalHandler";
 import { createTag } from "./commands/createTag";
 import { createInitialTag } from "./commands/createInitialTag";
 import { openCompareLink } from "./commands/openCompareLink";
-import { updateStatusBar } from "./utils/statusBarUpdater";
+import { createStatusBarUpdater } from "./utils/statusBarUpdater";
 import { CIService } from "./services/ciService";
-import { debounce } from "./utils/debounce";
+import { pushAndCheckBuild } from "./commands/pushAndCheckBuild";
+
+let buildStatusUrl: string | undefined;
+let branchBuildStatusUrl: string | undefined;
 
 export function activate(context: vscode.ExtensionContext) {
+  console.log('Activating Git Tag Release Tracker extension');
+
   const gitService = new GitService();
+  const ciService = new CIService();
+
+  const config = vscode.workspace.getConfiguration("git-tag-release-tracker");
+  const defaultBranch = config.get<string>("defaultBranch", "main");
+
   const statusBarService = new StatusBarService(
     [
       "extension.createMajorTag",
       "extension.createMinorTag",
       "extension.createPatchTag",
       "extension.createInitialTag",
+      "extension.refreshBranchBuildStatus",
     ],
-    context
+    context,
+    gitService,
+    ciService
   );
-  const ciService = new CIService();
 
-  const config = vscode.workspace.getConfiguration("git-tag-release-tracker");
-  const defaultBranch = config.get<string>("defaultBranch", "main");
-
-  const updateStatusBarCallback = async () => {
-    console.log("Updating status bar...");
-    try {
-      await updateStatusBar(gitService, statusBarService, defaultBranch, ciService);
-    } catch (error) {
-      console.log("Error updating status bar:", error);
-    }
-  };
-
-  // Debounce the update function
-  const debouncedUpdateStatusBar = debounce(updateStatusBarCallback, 300);
+  const statusBarUpdater = createStatusBarUpdater(gitService, statusBarService, defaultBranch, ciService);
 
   // Run immediately on activation
-  updateStatusBarCallback();
+  statusBarUpdater.updateNow();
 
-  // Run when the active editor changes
+  // Run when the active editor changes or document is saved
   context.subscriptions.push(
-    vscode.window.onDidChangeActiveTextEditor(() => {
-      debouncedUpdateStatusBar();
-    })
+    vscode.window.onDidChangeActiveTextEditor(statusBarUpdater.debouncedUpdate),
+    vscode.workspace.onDidSaveTextDocument(statusBarUpdater.debouncedUpdate)
   );
 
-  // Run when the document is saved
-  context.subscriptions.push(
-    vscode.workspace.onDidSaveTextDocument(() => {
-      debouncedUpdateStatusBar();
-    })
-  );
-
-  // Then run every 30 seconds
-  const intervalId = setInterval(updateStatusBarCallback, 30000);
-
-  let buildStatusUrl = '';
-
-  registerCommands(context, gitService, statusBarService, defaultBranch, ciService);
-
-  gitService.initializeGit().then(updateStatusBarCallback);
-
-  vscode.workspace.onDidChangeWorkspaceFolders(() => {
-    gitService.initializeGit().then(updateStatusBarCallback);
-  });
-
-  const intervalDisposable = createInterval(updateStatusBarCallback, 35000);
+  // Set up interval to update status bar
+  const updateInterval = config.get<number>("refreshInterval", 30) * 1000; // Convert to milliseconds
+  const intervalDisposable = createInterval(statusBarUpdater.updateNow, updateInterval);
   context.subscriptions.push(intervalDisposable);
 
-  context.subscriptions.push(
-    vscode.commands.registerCommand('extension.openBuildStatus', () => {
-      if (buildStatusUrl) {
-        vscode.env.openExternal(vscode.Uri.parse(buildStatusUrl));
-      } else {
-        vscode.window.showErrorMessage('No build status URL available.');
-      }
-    })
-  );
+  gitService.initializeGit().then(statusBarUpdater.updateNow);
+  vscode.workspace.onDidChangeWorkspaceFolders(() => gitService.initializeGit().then(statusBarUpdater.updateNow));
 
-  context.subscriptions.push(
-    vscode.commands.registerCommand('gitTagReleaseTracker._buildStatusUrl', (url: string) => {
-      buildStatusUrl = url;
-    })
-  );
-
-  context.subscriptions.push(
-    vscode.commands.registerCommand('gitTagReleaseTracker.getBuildStatusUrl', () => {
-      return vscode.commands.executeCommand('gitTagReleaseTracker._buildStatusUrl');
-    })
-  );
-
-  context.subscriptions.push(
-    vscode.commands.registerCommand('extension.createAndPushVersionTag', async (version: string) => {
-      try {
-        const { owner, repo } = await gitService.getOwnerAndRepo();
-        if (!owner || !repo) {
-          throw new Error('Unable to determine owner and repo');
-        }
-
-        await gitService.createTagInternal(version);
-
-        // Update status bar after pushing the tag
-        await updateStatusBar(gitService, statusBarService, defaultBranch, ciService);
-
-        vscode.window.showInformationMessage(`Version ${version} tag created and pushed successfully.`);
-
-        // Start polling for build status
-        pollBuildStatus(version, gitService, statusBarService, ciService);
-      } catch (error) {
-        vscode.window.showErrorMessage(`Failed to create and push version tag: ${(error as Error).message}`);
-      }
-    })
-  );
-
-  context.subscriptions.push({
-    dispose: () => clearInterval(intervalId)
-  });
+  registerCommands(context, gitService, statusBarService, defaultBranch, ciService, statusBarUpdater);
 }
 
 function registerCommands(
@@ -125,59 +61,108 @@ function registerCommands(
   gitService: GitService,
   statusBarService: StatusBarService,
   defaultBranch: string,
-  ciService: CIService
+  ciService: CIService,
+  statusBarUpdater: { updateNow: () => Promise<void> }
 ) {
-  context.subscriptions.push(
-    vscode.commands.registerCommand("extension.createMajorTag", () =>
-      createTag("major", gitService, statusBarService, defaultBranch, ciService)
-    ),
-    vscode.commands.registerCommand("extension.createMinorTag", () =>
-      createTag("minor", gitService, statusBarService, defaultBranch, ciService)
-    ),
-    vscode.commands.registerCommand("extension.createPatchTag", () =>
-      createTag("patch", gitService, statusBarService, defaultBranch, ciService)
-    ),
-    vscode.commands.registerCommand("extension.createInitialTag", () =>
-      createInitialTag(gitService, statusBarService, defaultBranch, ciService)
-    ),
-    vscode.commands.registerCommand("extension.openCompareLink", () =>
-      openCompareLink(gitService)
-    )
-  );
+  const commands = {
+    'extension.createMajorTag': () => createTag("major", gitService, statusBarService, defaultBranch, ciService),
+    'extension.createMinorTag': () => createTag("minor", gitService, statusBarService, defaultBranch, ciService),
+    'extension.createPatchTag': () => createTag("patch", gitService, statusBarService, defaultBranch, ciService),
+    'extension.createInitialTag': () => createInitialTag(gitService, statusBarService, defaultBranch, ciService),
+    'extension.openCompareLink': () => openCompareLink(gitService),
+    'extension.openBuildStatus': () => openBuildStatus(),
+    'extension.openBranchBuildStatus': () => openBranchBuildStatus(),
+    'extension.createAndPushVersionTag': (version: string) => createAndPushVersionTag(version, gitService, statusBarService, ciService, statusBarUpdater),
+    'extension.pushAndCheckBuild': () => pushAndCheckBuild(gitService, statusBarService, ciService),
+    'extension.refreshBranchBuildStatus': () => statusBarService.refreshCIStatus(),
+    'gitTagReleaseTracker._buildStatusUrl': (url: string) => { buildStatusUrl = url; },
+    'gitTagReleaseTracker._branchBuildStatusUrl': (url: string) => { branchBuildStatusUrl = url; },
+  };
+
+  for (const [commandId, handler] of Object.entries(commands)) {
+    context.subscriptions.push(vscode.commands.registerCommand(commandId, handler));
+  }
 }
 
-export function deactivate() {}
+function openBuildStatus() {
+  if (buildStatusUrl) {
+    vscode.env.openExternal(vscode.Uri.parse(buildStatusUrl));
+  } else {
+    vscode.window.showErrorMessage('No build status URL available.');
+  }
+}
+
+function openBranchBuildStatus() {
+  if (branchBuildStatusUrl) {
+    vscode.env.openExternal(vscode.Uri.parse(branchBuildStatusUrl));
+  } else {
+    vscode.window.showErrorMessage('No branch build status URL available.');
+  }
+}
+
+async function createAndPushVersionTag(
+  version: string,
+  gitService: GitService,
+  statusBarService: StatusBarService,
+  ciService: CIService,
+  statusBarUpdater: { updateNow: () => Promise<void> }
+) {
+  try {
+    const { owner, repo } = await gitService.getOwnerAndRepo();
+    if (!owner || !repo) {
+      throw new Error('Unable to determine owner and repo');
+    }
+
+    await gitService.createTagInternal(version);
+    await statusBarUpdater.updateNow();
+    vscode.window.showInformationMessage(`Version ${version} tag created and pushed successfully.`);
+    pollBuildStatus(version, gitService, statusBarService, ciService);
+  } catch (error) {
+    vscode.window.showErrorMessage(`Failed to create and push version tag: ${(error as Error).message}`);
+  }
+}
 
 async function pollBuildStatus(tag: string, gitService: GitService, statusBarService: StatusBarService, ciService: CIService, maxAttempts = 30) {
+  console.log(`Starting pollBuildStatus for tag: ${tag}`);
+  
   const ciType = gitService.detectCIType();
   if (!ciType) {
     console.log('No CI configuration detected, skipping build status check');
     return;
   }
 
+  console.log(`Detected CI type: ${ciType}`);
+
   let attempts = 0;
   const pollInterval = setInterval(async () => {
     attempts++;
+    console.log(`Poll attempt ${attempts} for tag: ${tag}`);
+    
     try {
       const { owner, repo } = await gitService.getOwnerAndRepo();
       if (!owner || !repo) {
         throw new Error('Unable to determine owner and repo');
       }
 
-      const { status, url } = await ciService.getBuildStatus(tag, owner, repo, ciType);
-      console.log(`pollBuildStatus received status: ${status} for tag: ${tag}`);
+      console.log(`Fetching build status for ${owner}/${repo}, tag: ${tag}`);
+      const { status, url } = await ciService.getBuildStatus(tag, owner, repo, ciType, true);
+      console.log(`Received status: ${status} for tag: ${tag}`);
+      
       statusBarService.updateBuildStatus(status, tag, url);
-      vscode.commands.executeCommand('gitTagReleaseTracker._buildStatusUrl', url);
+      buildStatusUrl = url;
 
-      if (['completed', 'success', 'failure', 'cancelled', 'action_required', 'neutral', 'skipped', 'stale', 'timed_out'].includes(status) || attempts >= maxAttempts) {
+      if (['completed', 'success', 'failure', 'cancelled', 'action_required', 'neutral', 'skipped', 'stale', 'timed_out', 'no_runs'].includes(status) || attempts >= maxAttempts) {
         console.log(`Stopping poll for tag ${tag} with final status: ${status}`);
         clearInterval(pollInterval);
       }
     } catch (error) {
       console.error('Error polling build status:', error);
       if (attempts >= maxAttempts) {
+        console.log(`Max attempts reached for tag ${tag}, stopping poll`);
         clearInterval(pollInterval);
       }
     }
   }, 10000); // Poll every 10 seconds
 }
+
+export function deactivate() {}
