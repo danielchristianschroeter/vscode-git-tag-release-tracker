@@ -12,6 +12,8 @@ The **Git Tag Release Tracker** extension for Visual Studio Code allows you to m
 - **CI/CD Integration**: Shows the build status of the latest tag directly in the status bar for both GitHub Actions and GitLab CI/CD.
 - **Manual Refresh**: Refresh the build status manually using the "Refresh Build Status" command. (This is needed because the status bar item is updated periodically, but not in response to all events.)
 
+**Note**: This extension only supports [Semantic Versioning](https://semver.org/) for tag management. Make sure your project follows the SemVer specification for optimal use of this extension.
+
 ### Screenshots
 
 <p align="center">
@@ -100,3 +102,15 @@ This extension contributes the following commands:
 - `Git Tag Release Tracker: Refresh Branch Build Status`: Manually refresh the build status for the current branch.
 
 You can access this command through the Command Palette (Ctrl+Shift+P or Cmd+Shift+P on macOS) by typing "Git Tag Release Tracker".
+
+## Semantic Versioning
+
+This extension adheres to Semantic Versioning 2.0.0 as defined at [semver.org](https://semver.org/). It's important to understand the principles of SemVer when using this extension:
+
+1. MAJOR version for incompatible API changes,
+2. MINOR version for adding functionality in a backwards compatible manner, and
+3. PATCH version for backwards compatible bug fixes.
+
+Additional labels for pre-release and build metadata are available as extensions to the MAJOR.MINOR.PATCH format.
+
+For more details on Semantic Versioning, please refer to the [official SemVer specification](https://semver.org/).

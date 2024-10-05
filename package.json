@@ -1,18 +1,18 @@
 {
   "name": "git-tag-release-tracker",
   "displayName": "Git Tag Release Tracker",
-  "description": "Track and manage your Git tags and releases directly from VSCode.",
+  "description": "Track Git tags, releases, and CI build statuses for your projects. Supports GitHub and GitLab integration.",
   "author": {
     "name": "Daniel Christian Schroeter"
   },
   "publisher": "DanielChristianSchroeter",
-  "version": "0.0.1",
+  "version": "1.0.0",
   "engines": {
     "vscode": "^1.91.1"
   },
   "categories": [
     "Other",
-    "Snippets"
+    "SCM Providers"
   ],
   "repository": {
     "type": "git",
@@ -22,23 +22,29 @@
     "git",
     "tag",
     "release",
-    "versioning",
-    "vscode",
-    "extension",
+    "version",
+    "tracker",
+    "ci",
+    "continuous integration",
+    "build",
+    "status",
+    "github",
+    "gitlab",
+    "semver",
+    "semantic versioning",
+    "automation",
+    "devops",
+    "workflow",
+    "pipeline",
     "repository",
     "commit",
-    "automation",
-    "workflow",
-    "semver",
-    "version control",
-    "git tags",
-    "release management",
-    "git integration",
-    "development tools",
+    "branch",
+    "vscode",
+    "extension",
+    "development",
     "productivity",
-    "source control",
-    "CI/CD",
-    "continuous integration"
+    "collaboration",
+    "version control"
   ],
   "activationEvents": [
     "workspaceContains:.git"
@@ -47,15 +53,15 @@
     "commands": [
       {
         "command": "extension.createMajorTag",
-        "title": "Create Major Tag"
+        "title": "Create Major Version Tag"
       },
       {
         "command": "extension.createMinorTag",
-        "title": "Create Minor Tag"
+        "title": "Create Minor Version Tag"
       },
       {
         "command": "extension.createPatchTag",
-        "title": "Create Patch Tag"
+        "title": "Create Patch Version Tag"
       },
       {
         "command": "extension.openCompareLink",
@@ -75,7 +81,7 @@
       },
       {
         "command": "extension.createInitialTag",
-        "title": "Create Initial Tag"
+        "title": "Create Initial Version Tag"
       },
       {
         "command": "extension.openBuildStatus",
@@ -89,38 +95,19 @@
         "gitTagReleaseTracker.defaultBranch": {
           "type": "string",
           "default": "main",
-          "description": "The default branch used for release versioning (e.g., main, master, production)"
+          "description": "Default branch name for the repository"
         },
         "gitTagReleaseTracker.ciProviders": {
           "type": "object",
-          "description": "Configuration for different CI providers",
-          "properties": {
+          "description": "CI provider configurations",
+          "default": {
             "github": {
-              "type": "object",
-              "properties": {
-                "token": {
-                  "type": "string",
-                  "description": "Authentication token for GitHub"
-                },
-                "apiUrl": {
-                  "type": "string",
-                  "default": "https://api.github.com",
-                  "description": "API URL for GitHub (Default: https://api.github.com)"
-                }
-              }
+              "token": "",
+              "apiUrl": "https://api.github.com"
             },
             "gitlab": {
-              "type": "object",
-              "properties": {
-                "token": {
-                  "type": "string",
-                  "description": "Authentication token for GitLab"
-                },
-                "apiUrl": {
-                  "type": "string",
-                  "description": "API URL for GitLab (e.g., 'https://gitlab.com' for GitLab.com or your self-hosted GitLab URL)"
-                }
-              }
+              "token": "",
+              "apiUrl": "https://gitlab.com/api/v4"
             }
           }
         },
@@ -174,5 +161,10 @@
     "axios": "^1.7.7",
     "semver": "^7.6.3",
     "simple-git": "^3.27.0"
-  }
+  },
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/danielchristianschroeter/vscode-git-tag-release-tracker/issues"
+  },
+  "homepage": "https://github.com/danielchristianschroeter/vscode-git-tag-release-tracker#readme"
 }
