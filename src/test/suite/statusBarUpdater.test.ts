@@ -18,69 +18,46 @@ suite("StatusBarUpdater Test Suite", () => {
   setup(() => {
     sandbox = sinon.createSandbox();
 
-    // Create stub objects instead of actual instances
     gitService = {
-      initializeGit: sandbox.stub().resolves(true),
-      getCurrentBranch: sandbox.stub().returns("main"),
-      getCurrentRepo: sandbox.stub().returns("test-repo"),
-      fetchAndTags: sandbox
-        .stub()
-        .resolves({ latest: "1.0.0", all: ["1.0.0"] }),
-      getUnreleasedCommits: sandbox.stub().resolves(5),
-      getOwnerAndRepo: sandbox
-        .stub()
-        .resolves({ owner: "owner", repo: "repo" }),
+      initializeGit: sandbox.stub().resolves(false),
+      getCurrentRepo: sandbox.stub().returns('test-repo'),
+      fetchAndTags: sandbox.stub().resolves({ latest: '1.0.0', all: ['1.0.0'] }),
       detectBranch: sandbox.stub().resolves(true),
-      getRemotes: sandbox
-        .stub()
-        .resolves([
-          {
-            name: "origin",
-            refs: { fetch: "https://github.com/owner/repo.git" },
-          },
-        ]),
-      getRemoteUrl: sandbox
-        .stub()
-        .resolves("https://github.com/owner/repo.git"),
-      detectCIType: sandbox.stub().returns(null),
-    } as any;
+      getRemotes: sandbox.stub().resolves(),
+      getCurrentBranch: sandbox.stub().returns('main'),
+      detectCIType: sandbox.stub().returns('github'),
+      getCommits: sandbox.stub().resolves({ total: 5 }),
+      getUnreleasedCommits: sandbox.stub().resolves(5),
+      getOwnerAndRepo: sandbox.stub().returns({ owner: 'owner', repo: 'repo' }),
+    } as unknown as GitService;
 
     statusBarService = {
-      updateStatusBar: sandbox.stub(),
-      updateButton: sandbox.stub(),
-      renderBuildStatus: sandbox.stub(),
-      hideBuildStatus: sandbox.stub(),
-      hideButtons: sandbox.stub(),
-      showButtons: sandbox.stub(),
-      getLastCheckedBuildStatus: sandbox.stub(),
-      getLastBuildStatus: sandbox.stub(),
       clearStatusBar: sandbox.stub(),
+      hideBuildStatus: sandbox.stub(),
+      hideBranchBuildStatus: sandbox.stub(),
+      hideButtons: sandbox.stub(),
+      updateButton: sandbox.stub(),
+      showButtons: sandbox.stub(),
+      updateStatusBar: sandbox.stub(),
       updateBuildStatus: sandbox.stub(),
-      setCIConfigured: sandbox.stub(),
-    } as any;
+      updateBranchBuildStatus: sandbox.stub(),
+    } as unknown as StatusBarService;
 
     ciService = {
-      getBuildStatus: sandbox
-        .stub()
-        .resolves({ status: "success", url: "https://example.com" }),
-    } as any;
+      clearCache: sandbox.stub(),
+      getBuildStatus: sandbox.stub().resolves({ status: 'success', url: 'https://example.com', message: 'Build successful' }),
+    } as unknown as CIService;
 
-    // Stub showError only once
-    showErrorStub = sandbox.stub(errorHandler, "showError").resolves(undefined);
-    logErrorStub = sandbox.stub(statusBarUpdaterModule, "logError");
+    showErrorStub = sandbox.stub(errorHandler, 'showError');
+    logErrorStub = sandbox.stub(statusBarUpdaterModule, 'logError');
 
-    // Mock the configuration
-    sandbox.stub(statusBarUpdaterModule, 'getConfiguration').returns({
-      get: (key: string) => {
-        if (key === 'ciProviders') {
-          return {};
-        }
-        return undefined;
-      },
-      has: (key: string) => key === 'ciProviders',
-      inspect: () => undefined,
-      update: sandbox.stub().resolves(),
-    } as vscode.WorkspaceConfiguration);
+    sandbox.stub(vscode.workspace, 'getConfiguration').returns({
+      get: sandbox.stub().returns({
+        github: { token: 'token', apiUrl: 'https://api.github.com' },
+      }),
+    } as any);
+
+    sandbox.stub(vscode.commands, 'executeCommand');
   });
 
   teardown(() => {
@@ -90,22 +67,28 @@ suite("StatusBarUpdater Test Suite", () => {
   test("updateStatusBar should update status bar correctly", async () => {
     await statusBarUpdaterModule.updateStatusBar(gitService, statusBarService, "main", ciService);
 
-    sinon.assert.called(statusBarService.updateStatusBar as sinon.SinonStub);
-    
-    const updateStatusBarCall = (statusBarService.updateStatusBar as sinon.SinonStub).getCall(0);
-    assert(updateStatusBarCall, "updateStatusBar should have been called");
-    assert(updateStatusBarCall.args[0].includes("test-repo/main"), "Status bar text should include repo and branch");
-    assert(updateStatusBarCall.args[0].includes("5 unreleased commits"), "Status bar text should include unreleased commits");
-    assert(updateStatusBarCall.args[0].includes("1.0.0"), "Status bar text should include latest tag");
+    sinon.assert.calledOnce(gitService.initializeGit as sinon.SinonStub);
+    sinon.assert.calledOnce(gitService.getCurrentRepo as sinon.SinonStub);
+    sinon.assert.calledOnce(gitService.fetchAndTags as sinon.SinonStub);
+    sinon.assert.calledOnce(gitService.detectBranch as sinon.SinonStub);
+    sinon.assert.calledOnce(gitService.getRemotes as sinon.SinonStub);
+    sinon.assert.calledOnce(gitService.getCurrentBranch as sinon.SinonStub);
+    sinon.assert.calledOnce(gitService.detectCIType as sinon.SinonStub);
+    sinon.assert.calledOnce(gitService.getUnreleasedCommits as sinon.SinonStub);
 
-    // Verify that other methods were called as expected
-    sinon.assert.called(gitService.initializeGit as sinon.SinonStub);
-    sinon.assert.called(gitService.getCurrentRepo as sinon.SinonStub);
-    sinon.assert.called(gitService.fetchAndTags as sinon.SinonStub);
-    sinon.assert.called(gitService.detectBranch as sinon.SinonStub);
-    sinon.assert.called(gitService.getRemotes as sinon.SinonStub);
-    sinon.assert.called(gitService.getCurrentBranch as sinon.SinonStub);
-    sinon.assert.called(gitService.getUnreleasedCommits as sinon.SinonStub);
+    sinon.assert.calledOnce(statusBarService.updateStatusBar as sinon.SinonStub);
+    sinon.assert.calledWith(
+      statusBarService.updateStatusBar as sinon.SinonStub,
+      'test-repo/main | 5 unreleased commits',
+      sinon.match.string,
+      'extension.openCompareLink'
+    );
+
+    sinon.assert.calledOnce(statusBarService.updateBuildStatus as sinon.SinonStub);
+    sinon.assert.calledOnce(statusBarService.updateBranchBuildStatus as sinon.SinonStub);
+
+    sinon.assert.notCalled(showErrorStub);
+    sinon.assert.notCalled(logErrorStub);
   });
 
   test("updateStatusBar should handle errors gracefully", async () => {
@@ -114,33 +97,10 @@ suite("StatusBarUpdater Test Suite", () => {
 
     await statusBarUpdaterModule.updateStatusBar(gitService, statusBarService, "main", ciService);
 
-    assert(logErrorStub.calledOnce, "logError should be called once");
-    assert(
-      logErrorStub.calledWith("Error updating status bar:", testError),
-      "logError should be called with the correct arguments"
-    );
-    assert(
-      (statusBarService.clearStatusBar as sinon.SinonStub).calledOnce,
-      "clearStatusBar should be called once"
-    );
-    assert(showErrorStub.calledOnce, "showError should be called once");
-
-    const showErrorCall = showErrorStub.getCall(0);
-    assert(
-      showErrorCall.args[0] instanceof Error,
-      "First argument to showError should be an Error"
-    );
-    assert.strictEqual(
-      showErrorCall.args[0].message,
-      "Test error",
-      "Error message should match"
-    );
-    assert.strictEqual(
-      showErrorCall.args[1],
-      "Error fetching git data",
-      "Error context should match"
-    );
+    sinon.assert.calledOnce(showErrorStub);
+    sinon.assert.calledWith(showErrorStub, testError, "Error fetching git data");
+    sinon.assert.calledOnce(statusBarService.clearStatusBar as sinon.SinonStub);
+    sinon.assert.calledOnce(logErrorStub);
+    sinon.assert.calledWith(logErrorStub, "Error updating status bar:", testError);
   });
-
-  // Add more tests as needed for different scenarios
 });
