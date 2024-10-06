@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.3.0]
+## [2.1.0]
 
 ### Added
 
@@ -27,7 +27,7 @@
 - Performance optimizations for status bar updates and CI status checks
 - Error messages and user feedback for CI status checking
 
-## [1.2.0]
+## [2.0.0]
 
 - Added: Automatic detection of CI/CD system (GitHub Actions or GitLab CI)
 - Added: Support for configuring multiple CI providers simultaneously
