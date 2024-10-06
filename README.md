@@ -1,4 +1,4 @@
-# Git Tag Release Tracker
+# Git Tag Release Tracker [![Visual Studio Marketplace](https://img.shields.io/visual-studio-marketplace/v/DanielChristianSchroeter.git-tag-release-tracker?style=flat&label=Visual%20Studio%20Marketplace) [![Visual Studio Marketplace Installs](https://img.shields.io/visual-studio-marketplace/i/DanielChristianSchroeter.git-tag-release-tracker?style=flat&label=Visual%20Studio%20Marketplace%20Installs&logo=visual-studio-code)](https://marketplace.visualstudio.com/items?itemName=DanielChristianSchroeter.git-tag-release-tracker) [![OpenVSX Registry Downloads](https://img.shields.io/open-vsx/dt/DanielChristianSchroeter/git-tag-release-tracker?style=flat&label=OpenVSX%20Downloads)](https://open-vsx.org/extension/DanielChristianSchroeter/git-tag-release-tracker)
 
 The **Git Tag Release Tracker** extension for Visual Studio Code allows you to manage and track your Git tags and releases directly within Visual Studio Code. Easily increment your Major, Minor, or Patch semantic versioning with a single click in the status bar. This extension now supports both GitHub Actions and GitLab CI/CD pipelines with automatic detection.
 
@@ -17,33 +17,39 @@ The **Git Tag Release Tracker** extension for Visual Studio Code allows you to m
 ### Screenshots
 
 <p align="center">
-<img src="images/status-bar-create-and-push-initial-version-tag.png" alt="Create Initial Version Tag" width=80%>
+<img src="images/status-bar-create-and-push-initial-version-tag.png" alt="Create Initial Version Tag" width=95%>
 <br/>
-<em>Easily create an initial version tag (1.0.0) if no tags are present.</em>
+<em>Create initial version tag (1.0.0) when no tags exist</em>
 </p>
 
 <p align="center">
-<img src="images/status-bar-create-and-push-new-version.png" alt="Increment Version" width=80%>
+<img src="images/status-bar-create-and-push-new-version-keep-prefix-and-stuffix.png" alt="Preserve Prefix and Suffix" width=95%>
 <br/>
-<em>Increase Major, Minor or Patch Version with just a single click.</em>
+<em>Preserve existing prefixes and suffixes in version tags</em>
 </p>
 
 <p align="center">
-<img src="images/status-bar-create-and-push-new-version-keep-prefix-and-stuffix.png" alt="Preserve Prefix and Suffix" width=80%>
+<img src="images/status-bar-create-and-push-new-version.png" alt="Increment Version" width=95%>
 <br/>
-<em>Maintain existing prefixes and suffixes in the version tag structure.</em>
+<em>Increment Major, Minor, or Patch version with a single click</em>
 </p>
 
 <p align="center">
-<img src="images/status-bar-show-github-workflow-gitlab-pipeline-build-status-for-tag.png" alt="Workflow/Pipeline build status for tag" width=80%>
+<img src="images/status-bar-show-current-github-or-gitlab-build-status.png" alt="Current Branch Build Status" width=95%>
 <br/>
-<em>Get current build status for Github Action Workflows or GitLab Pipelines for tag.</em>
+<em>View current branch build status in VS Code status bar</em>
 </p>
 
 <p align="center">
-<img src="images/status-bar-show-github-workflow-gitlab-pipeline-build-status-for-branch.png" alt="Workflow/Pipeline build status for branch" width=80%>
+<img src="images/status-bar-show-github-workflow-gitlab-pipeline-build-status-for-branch.png" alt="Workflow/Pipeline Build Status for Branch" width=95%>
 <br/>
-<em>Get current build status for Github Action Workflows or GitLab Pipelines for branch.</em>
+<em>Display GitHub Actions or GitLab Pipeline CI/CD build status for current branch</em>
+</p>
+
+<p align="center">
+<img src="images/status-bar-show-github-workflow-gitlab-pipeline-build-status-for-tag.png" alt="Workflow/Pipeline Build Status for Tag" width=95%>
+<br/>
+<em>Show GitHub Actions or GitLab Pipeline CI/CD build status for tags</em>
 </p>
 
 ## Requirements
