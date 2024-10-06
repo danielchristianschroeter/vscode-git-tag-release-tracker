@@ -33,7 +33,9 @@ export async function updateStatusBar(
   defaultBranch: string,
   ciService: CIService
 ) {
+  console.log("Updating status bar...");
   if (!gitService) {
+    console.log("Git service not available");
     return;
   }
 
@@ -42,11 +44,15 @@ export async function updateStatusBar(
     const repoChanged = await gitService.initializeGit();
 
     if (repoChanged) {
+      console.log("Repository changed, clearing status bar and cache");
       statusBarService.clearStatusBar();
+      statusBarService.clearBuildStatus();
       ciService.clearCache();
     }
 
     const currentRepo = gitService.getCurrentRepo();
+    statusBarService.setCurrentRepo(currentRepo);
+
     if (!currentRepo) {
       console.log("No Git repository detected.");
       statusBarService.clearStatusBar();
@@ -85,8 +91,8 @@ export async function updateStatusBar(
         await updateBranchBuildStatus(gitService, statusBarService, ciService, currentBranch, ciType);
       } else {
         console.log(`CI type ${ciType} detected but not configured.`);
-        statusBarService.updateBuildStatus('unknown', latestTag, '');
-        statusBarService.updateBranchBuildStatus('unknown', currentBranch, '');
+        statusBarService.updateBuildStatus('unknown', latestTag, '', currentRepo);
+        statusBarService.updateBranchBuildStatus('unknown', currentBranch, '', currentRepo);
       }
     } else {
       console.log('No CI configured or CI type not detected.');
@@ -178,7 +184,7 @@ async function updateBuildStatus(
     const { status, url, message } = await ciService.getBuildStatus(latestTag, owner, repo, ciType, true);
     console.log(`Build status received in updateStatusBar: ${status}`);
 
-    statusBarService.updateBuildStatus(status, latestTag, url);
+    statusBarService.updateBuildStatus(status, latestTag, url, repo);
     vscode.commands.executeCommand('gitTagReleaseTracker._buildStatusUrl', url);
 
     if (message && status === 'error') {
@@ -186,8 +192,8 @@ async function updateBuildStatus(
     }
   } catch (error) {
     console.error('Error updating build status:', error);
-    statusBarService.updateBuildStatus('error', latestTag, '');
     const { owner, repo } = await gitService.getOwnerAndRepo();
+    statusBarService.updateBuildStatus('error', latestTag, '', repo);
     const defaultUrl = ciType === 'github' 
       ? `https://github.com/${owner}/${repo}/actions`
       : `https://gitlab.com/${owner}/${repo}/-/pipelines`;
@@ -212,7 +218,7 @@ async function updateBranchBuildStatus(
     const { status, url, message } = await ciService.getBuildStatus(currentBranch, owner, repo, ciType, false);
     console.log(`Branch build status received in updateStatusBar: ${status}`);
 
-    statusBarService.updateBranchBuildStatus(status, currentBranch, url);
+    statusBarService.updateBranchBuildStatus(status, currentBranch, url, repo);
     vscode.commands.executeCommand('gitTagReleaseTracker._branchBuildStatusUrl', url);
 
     if (message && status === 'error') {
@@ -220,8 +226,8 @@ async function updateBranchBuildStatus(
     }
   } catch (error) {
     console.error('Error updating branch build status:', error);
-    statusBarService.updateBranchBuildStatus('error', currentBranch, '');
     const { owner, repo } = await gitService.getOwnerAndRepo();
+    statusBarService.updateBranchBuildStatus('error', currentBranch, '', repo);
     const defaultUrl = ciType === 'github'
       ? `https://github.com/${owner}/${repo}/actions`
       : `https://gitlab.com/${owner}/${repo}/-/pipelines`;

@@ -29,8 +29,8 @@ export async function pushAndCheckBuild(
     ciService.clearCacheForBranch(currentBranch, owner, repo, ciType);
 
     // Immediately set status to pending
-    statusBarService.updateBranchBuildStatus('pending', currentBranch, '');
-    vscode.window.showInformationMessage(`Checking build status...`);
+    statusBarService.updateBranchBuildStatus('pending', currentBranch, '', repo);
+    vscode.window.showInformationMessage(`Checking build status for ${owner}/${repo} branch ${currentBranch}...`);
 
     // Start immediate polling for branch
     await pollBuildStatusImmediate(currentBranch, owner, repo, ciType, ciService, statusBarService, false);
@@ -60,41 +60,40 @@ export async function pollBuildStatusImmediate(
   const maxInterval = 10000; // 10 seconds
 
   const inProgressStatuses = ['in_progress', 'queued', 'requested', 'waiting', 'pending'];
-  const finalStatuses = ['completed', 'action_required', 'cancelled', 'failure', 'neutral', 'skipped', 'stale', 'success', 'timed_out', 'no_workflow'];
+  const finalStatuses = ['completed', 'action_required', 'cancelled', 'failure', 'neutral', 'skipped', 'stale', 'success', 'timed_out'];
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     try {
       const { status, url, message } = await ciService.getImmediateBuildStatus(ref, owner, repo, ciType, isTag);
-      console.log(`Build status for ${isTag ? 'tag' : 'branch'} ${ref}: ${status}`);
+      console.log(`Build status for ${owner}/${repo} ${isTag ? 'tag' : 'branch'} ${ref}: ${status}`);
       
       if (isTag) {
-        statusBarService.updateBuildStatus(status, ref, url);
+        statusBarService.updateBuildStatus(status, ref, url, repo);
       } else {
-        statusBarService.updateBranchBuildStatus(status, ref, url);
+        statusBarService.updateBranchBuildStatus(status, ref, url, repo);
       }
 
       if (finalStatuses.includes(status)) {
-        console.log(`Final build status for ${isTag ? 'tag' : 'branch'} ${ref}: ${status}`);
-        if (status === 'no_workflow') {
-          vscode.window.showInformationMessage(`No workflow found for ${isTag ? 'tag' : 'branch'} ${ref}. Please check your CI configuration.`);
-        } else {
-          vscode.window.showInformationMessage(`${isTag ? 'Tag' : 'Branch'} build status: ${status}`);
-        }
+        vscode.window.showInformationMessage(`${owner}/${repo} ${isTag ? `tag ${ref}` : `branch ${ref}`}: Build status ${status}`);
         return;
       }
 
-      // For in-progress statuses, we'll continue polling
-      const interval = inProgressStatuses.includes(status)
+      if (status === 'no_runs' && attempt === 0) {
+        vscode.window.showInformationMessage(`${owner}/${repo} ${isTag ? `tag ${ref}` : `branch ${ref}`}: Waiting for CI to start...`);
+      }
+
+      const interval = inProgressStatuses.includes(status) || status === 'no_runs'
         ? Math.min(initialInterval * Math.pow(1.5, attempt), maxInterval)
-        : maxInterval; // For unknown statuses, we'll use the max interval
+        : maxInterval;
       
       await new Promise(resolve => setTimeout(resolve, interval));
     } catch (error) {
-      console.error(`Error polling ${isTag ? 'tag' : 'branch'} build status:`, error);
-      vscode.window.showErrorMessage(`Error checking ${isTag ? 'tag' : 'branch'} build status. Please check your CI configuration.`);
+      console.error(`Error polling ${owner}/${repo} ${isTag ? 'tag' : 'branch'} ${ref} build status:`, error);
+      vscode.window.showErrorMessage(`Error checking ${owner}/${repo} ${isTag ? 'tag' : 'branch'} ${ref} build status. Please check your CI configuration.`);
       return;
     }
   }
 
-  vscode.window.showInformationMessage(`${isTag ? 'Tag' : 'Branch'} build status check timed out. Please check your CI dashboard for updates.`);
+  vscode.window.showInformationMessage(`${owner}/${repo} ${isTag ? `tag ${ref}` : `branch ${ref}`}: Build status check timed out. Check CI dashboard.`);
 }
+

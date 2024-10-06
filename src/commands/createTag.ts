@@ -32,16 +32,22 @@ export async function createTag(
         // Add a small delay to ensure the tag is created locally
         await new Promise(resolve => setTimeout(resolve, 1000));
         
-        await gitService.pushTag(newTag);
-        vscode.window.showInformationMessage(
-          `Created and pushed new tag: ${newTag}`
-        );
+        try {
+          await gitService.pushTag(newTag);
+        } catch (pushError) {
+          console.error(`Error pushing tag ${newTag}:`, pushError);
+          vscode.window.showErrorMessage(`Failed to push tag ${newTag}. Please try again or push manually.`);
+          return;
+        }
         
-        // Get owner and repo here
         const { owner, repo } = await gitService.getOwnerAndRepo();
         if (!owner || !repo) {
           throw new Error('Unable to determine owner and repo');
         }
+        
+        vscode.window.showInformationMessage(
+          `New tag ${newTag} created and pushed for ${owner}/${repo}`
+        );
         
         // Update status bar immediately with the new tag
         await updateStatusBar(gitService, statusBarService, defaultBranch, ciService);

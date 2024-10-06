@@ -31,7 +31,7 @@ export async function checkBuildStatus(
     try {
       const result = await ciService.getBuildStatus(tag, owner, repo, ciType, true);
       status = result.status;
-      statusBarService.updateBuildStatus(status, tag, result.url);
+      statusBarService.updateBuildStatus(status, tag, result.url, repo);
       vscode.commands.executeCommand('gitTagReleaseTracker._buildStatusUrl', result.url);
     } catch (error) {
       console.error('Error checking build status:', error);
@@ -43,7 +43,7 @@ export async function checkBuildStatus(
 
   if (attempts >= maxAttempts) {
     console.log(`Build status check timed out for tag ${tag}`);
-    statusBarService.updateBuildStatus('timeout', tag, '');
+    statusBarService.updateBuildStatus('timeout', tag, '', repo);
   }
 }
 
@@ -71,7 +71,7 @@ export async function checkBranchBuildStatus(
     status = result.status;
     url = result.url;
 
-    statusBarService.updateBranchBuildStatus(status, branch, url);
+    statusBarService.updateBranchBuildStatus(status, branch, url, repo);
 
     if (['in_progress', 'queued', 'requested', 'waiting', 'pending'].includes(status)) {
       setTimeout(checkStatus, 10000); // Check again in 10 seconds for in-progress states

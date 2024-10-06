@@ -7,6 +7,7 @@ import simpleGit, {
 import * as vscode from "vscode";
 import * as fs from "fs";
 import * as path from "path";
+import { EventEmitter } from 'vscode';
 
 export class GitService {
   private git: SimpleGit | undefined;
@@ -14,6 +15,8 @@ export class GitService {
   private currentRepo = "";
   private currentRepoPath = "";
   private cachedTags: TagResult | null = null;
+  private _onRepoChanged = new EventEmitter<string>();
+  readonly onRepoChanged = this._onRepoChanged.event;
 
   constructor() {
     this.initializeGit();
@@ -44,6 +47,7 @@ export class GitService {
       return false; // No change in repository
     }
 
+    const oldRepoPath = this.currentRepoPath;
     this.currentRepoPath = newRepoPath;
     this.git = simpleGit({ baseDir: this.currentRepoPath });
     
@@ -66,6 +70,9 @@ export class GitService {
     this.currentRepo = path.basename(this.currentRepoPath);
     console.log("Git initialized for:", this.currentRepoPath);
     await this.getRemotes();
+    if (oldRepoPath !== newRepoPath) {
+      this._onRepoChanged.fire(this.currentRepo);
+    }
     return true;
   }
 
@@ -76,6 +83,8 @@ export class GitService {
     try {
       await this.git.addTag(tag);
       console.log(`Tag ${tag} created locally`);
+      // Fetch tags to ensure the local repository is up-to-date
+      await this.git.fetch(['--tags']);
     } catch (error) {
       console.error(`Error creating tag ${tag}:`, error);
       throw error;
@@ -177,7 +186,12 @@ export class GitService {
       throw new Error("Git is not initialized");
     }
     try {
-      await this.git?.push('origin', tag);
+      // Check if the tag exists locally before pushing
+      const tags = await this.git.tags();
+      if (!tags.all.includes(tag)) {
+        throw new Error(`Tag ${tag} does not exist locally`);
+      }
+      await this.git.push('origin', tag);
       console.log(`Tag ${tag} pushed to remote`);
     } catch (error) {
       console.error(`Error pushing tag ${tag}:`, error);

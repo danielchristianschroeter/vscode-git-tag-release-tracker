@@ -15,7 +15,7 @@ interface BuildStatusCacheEntry {
 
 export class CIService {
   private providers: { [key: string]: CIProvider };
-  private buildStatusCache: { [key: string]: BuildStatusCacheEntry } = {};
+  private buildStatusCache: { [key: string]: { [key: string]: BuildStatusCacheEntry } } = {};
   private defaultCacheTTL = 60000; // 1 minute cache TTL for most statuses
   private inProgressCacheTTL = 5000; // 5 seconds cache TTL for in-progress statuses
   private cacheBypassTimeout: { [key: string]: number } = {};
@@ -37,15 +37,20 @@ export class CIService {
   async getBuildStatus(ref: string, owner: string, repo: string, ciType: 'github' | 'gitlab', isTag: boolean): Promise<{ status: string, url: string, message?: string }> {
     console.log('getBuildStatus called with:', { ref, owner, repo, ciType, isTag });
 
-    const cacheKey = `${owner}/${repo}/${ref}/${ciType}`;
+    const repoKey = `${owner}/${repo}`;
+    const cacheKey = `${ref}/${ciType}`;
+
+    if (!this.buildStatusCache[repoKey]) {
+      this.buildStatusCache[repoKey] = {};
+    }
+
+    const cachedResult = this.buildStatusCache[repoKey][cacheKey];
 
     // Check if we should bypass the cache
     if (this.cacheBypassTimeout[cacheKey] && Date.now() < this.cacheBypassTimeout[cacheKey]) {
       console.log('Bypassing cache for recent push');
       return this.fetchFreshBuildStatus(ref, owner, repo, ciType, isTag);
     }
-
-    const cachedResult = this.buildStatusCache[cacheKey];
 
     if (cachedResult) {
       const isInProgress = ['pending', 'in_progress', 'queued', 'requested', 'waiting'].includes(cachedResult.status);
@@ -94,7 +99,12 @@ export class CIService {
       this.checkRateLimit(result.response, ciType);
 
       // Cache the result
-      this.buildStatusCache[`${owner}/${repo}/${ref}/${ciType}`] = {
+      const repoKey = `${owner}/${repo}`;
+      const cacheKey = `${ref}/${ciType}`;
+      if (!this.buildStatusCache[repoKey]) {
+        this.buildStatusCache[repoKey] = {};
+      }
+      this.buildStatusCache[repoKey][cacheKey] = {
         ...result,
         timestamp: Date.now()
       };
@@ -260,9 +270,15 @@ export class CIService {
     this.buildStatusCache = {};
   }
 
+  clearCacheForRepo(owner: string, repo: string) {
+    const repoKey = `${owner}/${repo}`;
+    delete this.buildStatusCache[repoKey];
+  }
+
   clearCacheForBranch(branch: string, owner: string, repo: string, ciType: 'github' | 'gitlab') {
-    const cacheKey = `${owner}/${repo}/${branch}/${ciType}`;
-    delete this.buildStatusCache[cacheKey];
+    const repoKey = `${owner}/${repo}`;
+    const cacheKey = `${branch}/${ciType}`;
+    delete this.buildStatusCache[repoKey][cacheKey];
     
     // Set a timeout to bypass cache for this branch for the next 2 minutes
     this.cacheBypassTimeout[cacheKey] = Date.now() + 120000; // 2 minutes
@@ -273,8 +289,12 @@ export class CIService {
     const result = await this.fetchFreshBuildStatus(ref, owner, repo, ciType, isTag);
     
     // Cache the result
-    const cacheKey = `${owner}/${repo}/${ref}/${ciType}`;
-    this.buildStatusCache[cacheKey] = {
+    const repoKey = `${owner}/${repo}`;
+    const cacheKey = `${ref}/${ciType}`;
+    if (!this.buildStatusCache[repoKey]) {
+      this.buildStatusCache[repoKey] = {};
+    }
+    this.buildStatusCache[repoKey][cacheKey] = {
       ...result,
       timestamp: Date.now()
     };

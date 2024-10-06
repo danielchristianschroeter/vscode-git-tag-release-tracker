@@ -75,28 +75,28 @@ suite('Extension Test Suite', () => {
 			command: '',
 			show: () => {},
 			hide: () => {},
-			} as any;
+		} as any;
 		statusBarService['buildStatusItem'] = {
 			text: '',
 			tooltip: '',
 			command: '',
 			show: () => {},
 			hide: () => {},
-			} as any;
+		} as any;
 		statusBarService['branchBuildStatusItem'] = {
 			text: '',
 			tooltip: '',
 			command: '',
 			show: () => {},
 			hide: () => {},
-			} as any;
+		} as any;
 		const updateStatusBarSpy = sandbox.spy(statusBarService, 'updateStatusBar');
 		const updateBuildStatusSpy = sandbox.spy(statusBarService, 'updateBuildStatus');
 		const updateBranchBuildStatusSpy = sandbox.spy(statusBarService, 'updateBranchBuildStatus');
 		
 		statusBarService.updateStatusBar('Test Status', 'Test Tooltip');
-		statusBarService.updateBuildStatus('success', '1.0.0', 'https://example.com');
-		statusBarService.updateBranchBuildStatus('success', 'main', 'https://example.com');
+		statusBarService.updateBuildStatus('success', '1.0.0', 'https://example.com', 'test-repo');
+		statusBarService.updateBranchBuildStatus('success', 'main', 'https://example.com', 'test-repo');
 		
 		assert(updateStatusBarSpy.calledOnce);
 		assert(updateBuildStatusSpy.calledOnce);

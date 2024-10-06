@@ -14,6 +14,7 @@ export class StatusBarService {
   private backoffTime: number = 1000; // Start with 1 second
   private refreshCount: number = 0;
   private refreshTimeout: NodeJS.Timeout | null = null;
+  private currentRepo: string = '';
 
   constructor(private buttonCommands: string[], private context: vscode.ExtensionContext, private gitService: GitService, private ciService: CIService) {
     this.statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
@@ -50,7 +51,7 @@ export class StatusBarService {
 
       if (owner && repo && ciType) {
         const { status, url } = await this.ciService.getImmediateBuildStatus(currentBranch, owner, repo, ciType, false);
-        this.updateBranchBuildStatus(status, currentBranch, url);
+        this.updateBranchBuildStatus(status, currentBranch, url, repo);
         this.lastRefreshTime = currentTime;
         this.backoffTime = 1000; // Reset backoff time on successful refresh
         this.refreshCount++;
@@ -107,7 +108,10 @@ export class StatusBarService {
     this.statusBarItem.show();
   }
 
-  updateBuildStatus(status: string, tag: string, url: string) {
+  updateBuildStatus(status: string, tag: string, url: string, repo: string) {
+    if (repo !== this.currentRepo) {
+      return;
+    }
     if (status === 'no_runs') {
       this.buildStatusItem.text = `$(circle-slash) No builds for ${tag}`;
       this.buildStatusItem.tooltip = `No builds found for tag ${tag}`;
@@ -125,7 +129,10 @@ export class StatusBarService {
     this.lastBuildStatus = { ref: tag, status, url };
   }
 
-  updateBranchBuildStatus(status: string, branch: string, url: string) {
+  updateBranchBuildStatus(status: string, branch: string, url: string, repo: string) {
+    if (repo !== this.currentRepo) {
+      return;
+    }
     if (status === 'no_runs') {
       this.branchBuildStatusItem.text = `$(circle-slash) No builds for ${branch}`;
       this.branchBuildStatusItem.tooltip = `No builds found for branch ${branch}`;
@@ -178,6 +185,7 @@ export class StatusBarService {
       const button = this.buttons[index];
       button.text = text;
       button.tooltip = tooltip;
+      button.show(); // Ensure the button is visible after updating
     }
   }
 
@@ -192,11 +200,6 @@ export class StatusBarService {
     if (this.refreshTimeout) {
       clearTimeout(this.refreshTimeout);
     }
-  }
-
-  private isPendingStatus(status: string): boolean {
-    const pendingStatuses = ['in_progress', 'queued', 'pending', 'running', 'waiting'];
-    return pendingStatuses.includes(status);
   }
 
   private getStatusIcon(status: string): string {
@@ -238,5 +241,15 @@ export class StatusBarService {
       default:
         return '$(question)';
     }
+  }
+
+  clearBuildStatus() {
+    this.buildStatusItem.hide();
+    this.branchBuildStatusItem.hide();
+    this.lastBuildStatus = null;
+  }
+
+  setCurrentRepo(repo: string) {
+    this.currentRepo = repo;
   }
 }

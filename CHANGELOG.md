@@ -1,5 +1,32 @@
 # Changelog
 
+## [1.3.0]
+
+### Added
+
+- Repository-specific build status tracking
+- Event emitter for repository changes in GitService
+- Separate caches for each repository in CIService
+- Improved tag creation and pushing process with local verification
+
+### Changed
+
+- Enhanced status bar updates to reflect current repository status
+- Optimized build status polling with immediate status updates
+- Improved handling of repository switches
+
+### Fixed
+
+- Build status persistence across different repositories
+- TypeScript errors in StatusBarService method signatures
+- Error handling for tag pushing when switching repositories quickly
+
+### Improved
+
+- Code structure and organization for better maintainability
+- Performance optimizations for status bar updates and CI status checks
+- Error messages and user feedback for CI status checking
+
 ## [1.2.0]
 
 - Added: Automatic detection of CI/CD system (GitHub Actions or GitLab CI)

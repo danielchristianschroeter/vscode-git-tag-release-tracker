@@ -41,11 +41,13 @@ suite("StatusBarUpdater Test Suite", () => {
       updateStatusBar: sandbox.stub(),
       updateBuildStatus: sandbox.stub(),
       updateBranchBuildStatus: sandbox.stub(),
+      setCurrentRepo: sandbox.stub(),
     } as unknown as StatusBarService;
 
     ciService = {
-      clearCache: sandbox.stub(),
       getBuildStatus: sandbox.stub().resolves({ status: 'success', url: 'https://example.com', message: 'Build successful' }),
+      getImmediateBuildStatus: sandbox.stub().resolves({ status: 'success', url: 'https://example.com', message: 'Build successful' }),
+      clearCache: sandbox.stub(),
     } as unknown as CIService;
 
     showErrorStub = sandbox.stub(errorHandler, 'showError');
@@ -53,7 +55,7 @@ suite("StatusBarUpdater Test Suite", () => {
 
     sandbox.stub(vscode.workspace, 'getConfiguration').returns({
       get: sandbox.stub().returns({
-        github: { token: 'token', apiUrl: 'https://api.github.com' },
+        github: { token: 'fake-token', apiUrl: 'https://api.github.com' },
       }),
     } as any);
 
@@ -76,6 +78,7 @@ suite("StatusBarUpdater Test Suite", () => {
     sinon.assert.calledOnce(gitService.detectCIType as sinon.SinonStub);
     sinon.assert.calledOnce(gitService.getUnreleasedCommits as sinon.SinonStub);
 
+    sinon.assert.calledOnce(statusBarService.setCurrentRepo as sinon.SinonStub);
     sinon.assert.calledOnce(statusBarService.updateStatusBar as sinon.SinonStub);
     sinon.assert.calledWith(
       statusBarService.updateStatusBar as sinon.SinonStub,
@@ -85,7 +88,22 @@ suite("StatusBarUpdater Test Suite", () => {
     );
 
     sinon.assert.calledOnce(statusBarService.updateBuildStatus as sinon.SinonStub);
+    sinon.assert.calledWith(
+      statusBarService.updateBuildStatus as sinon.SinonStub,
+      'success',
+      '1.0.0',
+      'https://example.com',
+      'repo'
+    );
+
     sinon.assert.calledOnce(statusBarService.updateBranchBuildStatus as sinon.SinonStub);
+    sinon.assert.calledWith(
+      statusBarService.updateBranchBuildStatus as sinon.SinonStub,
+      'success',
+      'main',
+      'https://example.com',
+      'repo'
+    );
 
     sinon.assert.notCalled(showErrorStub);
     sinon.assert.notCalled(logErrorStub);

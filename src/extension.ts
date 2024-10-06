@@ -36,6 +36,14 @@ export function activate(context: vscode.ExtensionContext) {
 
   const statusBarUpdater = createStatusBarUpdater(gitService, statusBarService, defaultBranch, ciService);
 
+  gitService.onRepoChanged((newRepo) => {
+    console.log('Repository changed, updating status bar');
+    statusBarService.clearBuildStatus();
+    const [owner, repo] = newRepo.split('/');
+    ciService.clearCacheForRepo(owner, repo);
+    statusBarUpdater.updateNow();
+  });
+
   // Run immediately on activation
   statusBarUpdater.updateNow();
 
@@ -50,8 +58,15 @@ export function activate(context: vscode.ExtensionContext) {
   const intervalDisposable = createInterval(statusBarUpdater.updateNow, updateInterval);
   context.subscriptions.push(intervalDisposable);
 
+  // Initial setup
   gitService.initializeGit().then(statusBarUpdater.updateNow);
-  vscode.workspace.onDidChangeWorkspaceFolders(() => gitService.initializeGit().then(statusBarUpdater.updateNow));
+
+  // Listen for workspace folder changes
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeWorkspaceFolders(() => {
+      gitService.initializeGit().then(statusBarUpdater.updateNow);
+    })
+  );
 
   registerCommands(context, gitService, statusBarService, defaultBranch, ciService, statusBarUpdater);
 }
@@ -148,7 +163,7 @@ async function pollBuildStatus(tag: string, gitService: GitService, statusBarSer
       const { status, url } = await ciService.getBuildStatus(tag, owner, repo, ciType, true);
       console.log(`Received status: ${status} for tag: ${tag}`);
       
-      statusBarService.updateBuildStatus(status, tag, url);
+      statusBarService.updateBuildStatus(status, tag, url, repo);
       buildStatusUrl = url;
 
       if (['completed', 'success', 'failure', 'cancelled', 'action_required', 'neutral', 'skipped', 'stale', 'timed_out', 'no_runs'].includes(status) || attempts >= maxAttempts) {
