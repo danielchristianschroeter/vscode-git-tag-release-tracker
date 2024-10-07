@@ -95,4 +95,68 @@ suite('GitService Test Suite', () => {
     const result = await gitService.getOwnerAndRepo();
     assert.deepStrictEqual(result, { owner: 'owner', repo: 'repo' });
   });
+
+  suite('getOwnerAndRepo', () => {
+    const testCases = [
+      {
+        name: 'GitHub HTTPS URL',
+        url: 'https://github.com/owner/repo.git',
+        expected: { owner: 'owner', repo: 'repo' }
+      },
+      {
+        name: 'GitHub SSH URL',
+        url: 'git@github.com:owner/repo.git',
+        expected: { owner: 'owner', repo: 'repo' }
+      },
+      {
+        name: 'GitHub HTTPS URL with credentials',
+        url: 'https://username:token@github.com/owner/repo.git',
+        expected: { owner: 'owner', repo: 'repo' }
+      },
+      {
+        name: 'GitLab HTTPS URL',
+        url: 'https://gitlab.com/owner/repo.git',
+        expected: { owner: 'owner', repo: 'repo' }
+      },
+      {
+        name: 'GitLab SSH URL',
+        url: 'git@gitlab.com:owner/repo.git',
+        expected: { owner: 'owner', repo: 'repo' }
+      },
+      {
+        name: 'GitLab HTTPS URL with credentials',
+        url: 'https://username:token@gitlab.com/owner/repo.git',
+        expected: { owner: 'owner', repo: 'repo' }
+      },
+      {
+        name: 'GitLab HTTPS URL with subgroup',
+        url: 'https://gitlab.com/group/subgroup/repo.git',
+        expected: { owner: 'group/subgroup', repo: 'repo' }
+      },
+      {
+        name: 'GitLab SSH URL with subgroup',
+        url: 'git@gitlab.com:group/subgroup/repo.git',
+        expected: { owner: 'group/subgroup', repo: 'repo' }
+      },
+      {
+        name: 'GitLab HTTPS URL with multiple subgroups',
+        url: 'https://gitlab.com/group/subgroup1/subgroup2/repo.git',
+        expected: { owner: 'group/subgroup1/subgroup2', repo: 'repo' }
+      },
+      {
+        name: 'GitLab SSH URL with multiple subgroups',
+        url: 'git@gitlab.com:group/subgroup1/subgroup2/repo.git',
+        expected: { owner: 'group/subgroup1/subgroup2', repo: 'repo' }
+      }
+    ];
+
+    testCases.forEach(({ name, url, expected }) => {
+      test(`getOwnerAndRepo should extract owner and repo from ${name}`, async () => {
+        sandbox.stub(gitService, 'getRemoteUrl').resolves(url);
+        
+        const result = await gitService.getOwnerAndRepo();
+        assert.deepStrictEqual(result, expected);
+      });
+    });
+  });
 });
