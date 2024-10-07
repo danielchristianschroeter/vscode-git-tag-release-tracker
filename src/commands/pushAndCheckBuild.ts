@@ -74,12 +74,12 @@ export async function pollBuildStatusImmediate(
       }
 
       if (finalStatuses.includes(status)) {
-        vscode.window.showInformationMessage(`${owner}/${repo} ${isTag ? `tag ${ref}` : `branch ${ref}`}: Build status ${status}`);
+        vscode.window.showInformationMessage(`Build status ${status} for ${isTag ? 'tag' : 'branch'} ${ref} (${owner}/${repo})`);
         return;
       }
 
       if (status === 'no_runs' && attempt === 0) {
-        vscode.window.showInformationMessage(`${owner}/${repo} ${isTag ? `tag ${ref}` : `branch ${ref}`}: Waiting for CI to start...`);
+        vscode.window.showInformationMessage(`Waiting for CI to start for ${isTag ? 'tag' : 'branch'} ${ref} (${owner}/${repo})`);
       }
 
       const interval = inProgressStatuses.includes(status) || status === 'no_runs'
@@ -89,11 +89,11 @@ export async function pollBuildStatusImmediate(
       await new Promise(resolve => setTimeout(resolve, interval));
     } catch (error) {
       console.error(`Error polling ${owner}/${repo} ${isTag ? 'tag' : 'branch'} ${ref} build status:`, error);
-      vscode.window.showErrorMessage(`Error checking ${owner}/${repo} ${isTag ? 'tag' : 'branch'} ${ref} build status. Please check your CI configuration.`);
+      vscode.window.showErrorMessage(`Error checking ${isTag ? 'tag' : 'branch'} ${ref} build status. Please check your CI configuration. (${owner}/${repo})`);
       return;
     }
   }
 
-  vscode.window.showInformationMessage(`${owner}/${repo} ${isTag ? `tag ${ref}` : `branch ${ref}`}: Build status check timed out. Check CI dashboard.`);
+  vscode.window.showInformationMessage(`Build status check timed out for ${isTag ? 'tag' : 'branch'} ${ref}. Check CI dashboard. (${owner}/${repo})`);
 }
 
