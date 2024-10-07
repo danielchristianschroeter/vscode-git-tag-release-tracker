@@ -1,5 +1,22 @@
 # Changelog
 
+## [2.2.0]
+
+### Added
+
+- Support for GitLab repositories with nested group structures
+
+### Fixed
+
+- Improved URL parsing to correctly handle repositories with subgroups
+- Fixed issue with extracting owner and repo from URLs containing credentials
+- Enhanced compatibility with various Git remote URL formats (HTTPS, SSH, with/without credentials)
+
+### Improved
+
+- Robustness of repository information extraction from remote URLs
+- Error handling and logging for repository parsing issues
+
 ## [2.1.0]
 
 ### Added

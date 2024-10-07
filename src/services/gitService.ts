@@ -220,20 +220,28 @@ export class GitService {
       const remoteUrl = await this.getRemoteUrl();
       console.log('Remote URL:', remoteUrl);
 
-      // Handle both HTTPS and SSH URLs for GitHub and GitLab
-      const httpsMatch = remoteUrl.match(/(?:https?:\/\/(?:[^@]+@)?(?:github|gitlab)\.com\/|git@(?:github|gitlab)\.com:)([^\/]+)\/([^\/\.]+)(?:\.git)?/);
-      
-      if (httpsMatch) {
-        const [, owner, repo] = httpsMatch;
-        console.log('Extracted owner and repo:', { owner, repo });
-        return { owner, repo };
-      }
+      // Unified regex pattern for both HTTPS (with or without credentials) and SSH URLs
+      const urlPattern = /(?:https?:\/\/(?:[^@]+@)?|git@)(?:github\.com|gitlab\.com)[/:](.+?)(?:\.git)?$/;
+      const match = remoteUrl.match(urlPattern);
 
-      // If HTTPS/SSH pattern doesn't match, try GitLab-specific pattern
-      const gitlabSshMatch = remoteUrl.match(/git@gitlab\.com:(.+)\/(.+)\.git/);
-      if (gitlabSshMatch) {
-        const [, owner, repo] = gitlabSshMatch;
-        console.log('Extracted owner and repo from GitLab SSH URL:', { owner, repo });
+      if (match) {
+        const fullPath = match[1];
+        const parts = fullPath.split('/');
+        
+        if (parts.length < 2) {
+          throw new Error(`Invalid repository path: ${fullPath}`);
+        }
+
+        // For GitHub, or GitLab without subgroups
+        if (parts.length === 2) {
+          return { owner: parts[0], repo: parts[1] };
+        }
+
+        // For GitLab with subgroups
+        const repo = parts.pop()!; // Get the last part as the repo name
+        const owner = parts.join('/'); // Join the rest as the owner (including subgroups)
+
+        console.log('Extracted owner and repo:', { owner, repo });
         return { owner, repo };
       }
 
