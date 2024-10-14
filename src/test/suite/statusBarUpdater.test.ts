@@ -1,124 +1,96 @@
-import * as sinon from "sinon";
-import assert from "assert";
-import * as statusBarUpdaterModule from "../../utils/statusBarUpdater";
-import { GitService } from "../../services/gitService";
-import { StatusBarService } from "../../services/statusBarService";
-import { CIService } from "../../services/ciService";
-import * as vscode from "vscode";
-import * as errorHandler from "../../utils/errorHandler";
+import assert from 'assert';
+import * as sinon from 'sinon';
+import * as vscode from 'vscode';
+import { GitService } from '../../services/gitService';
+import { StatusBarService } from '../../services/statusBarService';
+import { CIService } from '../../services/ciService';
+import { updateStatusBar, createStatusBarUpdater } from '../../utils/statusBarUpdater';
+import { setupTestEnvironment, teardownTestEnvironment } from './testSetup';
+import { Logger } from '../../utils/logger';
 
-suite("StatusBarUpdater Test Suite", () => {
-  let gitService: GitService;
-  let statusBarService: StatusBarService;
-  let ciService: CIService;
+suite('StatusBarUpdater Test Suite', () => {
   let sandbox: sinon.SinonSandbox;
-  let showErrorStub: sinon.SinonStub;
-  let logErrorStub: sinon.SinonStub;
+  let testEnv: ReturnType<typeof setupTestEnvironment>;
+  let gitService: sinon.SinonStubbedInstance<GitService>;
+  let statusBarService: sinon.SinonStubbedInstance<StatusBarService>;
+  let ciService: sinon.SinonStubbedInstance<CIService>;
 
   setup(() => {
-    sandbox = sinon.createSandbox();
+    testEnv = setupTestEnvironment();
+    sandbox = testEnv.sandbox;
+    
+    gitService = sandbox.createStubInstance(GitService);
+    statusBarService = sandbox.createStubInstance(StatusBarService);
+    ciService = sandbox.createStubInstance(CIService);
 
-    gitService = {
-      initializeGit: sandbox.stub().resolves(false),
-      getCurrentRepo: sandbox.stub().returns('test-repo'),
-      fetchAndTags: sandbox.stub().resolves({ latest: '1.0.0', all: ['1.0.0'] }),
-      detectBranch: sandbox.stub().resolves(true),
-      getRemotes: sandbox.stub().resolves(),
-      getCurrentBranch: sandbox.stub().returns('main'),
-      detectCIType: sandbox.stub().returns('github'),
-      getCommits: sandbox.stub().resolves({ total: 5 }),
-      getUnreleasedCommits: sandbox.stub().resolves(5),
-      getOwnerAndRepo: sandbox.stub().returns({ owner: 'owner', repo: 'repo' }),
-    } as unknown as GitService;
-
-    statusBarService = {
-      clearStatusBar: sandbox.stub(),
-      hideBuildStatus: sandbox.stub(),
-      hideBranchBuildStatus: sandbox.stub(),
-      hideButtons: sandbox.stub(),
-      updateButton: sandbox.stub(),
-      showButtons: sandbox.stub(),
-      updateStatusBar: sandbox.stub(),
-      updateBuildStatus: sandbox.stub(),
-      updateBranchBuildStatus: sandbox.stub(),
-      setCurrentRepo: sandbox.stub(),
-    } as unknown as StatusBarService;
-
-    ciService = {
-      getBuildStatus: sandbox.stub().resolves({ status: 'success', url: 'https://example.com', message: 'Build successful' }),
-      getImmediateBuildStatus: sandbox.stub().resolves({ status: 'success', url: 'https://example.com', message: 'Build successful' }),
-      clearCache: sandbox.stub(),
-    } as unknown as CIService;
-
-    showErrorStub = sandbox.stub(errorHandler, 'showError');
-    logErrorStub = sandbox.stub(statusBarUpdaterModule, 'logError');
-
-    sandbox.stub(vscode.workspace, 'getConfiguration').returns({
-      get: sandbox.stub().returns({
-        github: { token: 'fake-token', apiUrl: 'https://api.github.com' },
-      }),
-    } as any);
-
-    sandbox.stub(vscode.commands, 'executeCommand');
+    // Stub Logger to prevent actual logging during tests
+    sandbox.stub(Logger, 'log');
   });
 
   teardown(() => {
-    sandbox.restore();
+    teardownTestEnvironment(sandbox);
   });
 
-  test("updateStatusBar should update status bar correctly", async () => {
-    await statusBarUpdaterModule.updateStatusBar(gitService, statusBarService, "main", ciService);
+  test('updateStatusBar should update status bar and CI status for both tag and branch', async () => {
+    // Set up the stubs
+    gitService.isInitialized.returns(true);
+    gitService.getCurrentRepo.resolves('testrepo');
+    gitService.getCurrentBranch.resolves('main');
+    gitService.fetchAndTags.resolves({ latest: '1.0.0', all: ['1.0.0'] });
+    gitService.getOwnerAndRepo.resolves({ owner: 'testowner', repo: 'testrepo' });
+    gitService.detectCIType.returns('github');
 
-    sinon.assert.calledOnce(gitService.initializeGit as sinon.SinonStub);
-    sinon.assert.calledOnce(gitService.getCurrentRepo as sinon.SinonStub);
-    sinon.assert.calledOnce(gitService.fetchAndTags as sinon.SinonStub);
-    sinon.assert.calledOnce(gitService.detectBranch as sinon.SinonStub);
-    sinon.assert.calledOnce(gitService.getRemotes as sinon.SinonStub);
-    sinon.assert.calledOnce(gitService.getCurrentBranch as sinon.SinonStub);
-    sinon.assert.calledOnce(gitService.detectCIType as sinon.SinonStub);
-    sinon.assert.calledOnce(gitService.getUnreleasedCommits as sinon.SinonStub);
+    // Call the function
+    await updateStatusBar(gitService, statusBarService);
 
-    sinon.assert.calledOnce(statusBarService.setCurrentRepo as sinon.SinonStub);
-    sinon.assert.calledOnce(statusBarService.updateStatusBar as sinon.SinonStub);
-    sinon.assert.calledWith(
-      statusBarService.updateStatusBar as sinon.SinonStub,
-      'test-repo/main | 5 unreleased commits',
-      sinon.match.string,
-      'extension.openCompareLink'
-    );
-
-    sinon.assert.calledOnce(statusBarService.updateBuildStatus as sinon.SinonStub);
-    sinon.assert.calledWith(
-      statusBarService.updateBuildStatus as sinon.SinonStub,
-      'success',
-      '1.0.0',
-      'https://example.com',
-      'repo'
-    );
-
-    sinon.assert.calledOnce(statusBarService.updateBranchBuildStatus as sinon.SinonStub);
-    sinon.assert.calledWith(
-      statusBarService.updateBranchBuildStatus as sinon.SinonStub,
-      'success',
-      'main',
-      'https://example.com',
-      'repo'
-    );
-
-    sinon.assert.notCalled(showErrorStub);
-    sinon.assert.notCalled(logErrorStub);
+    // Assertions
+    sinon.assert.calledOnce(gitService.isInitialized);
+    sinon.assert.calledOnce(gitService.getCurrentRepo);
+    sinon.assert.calledOnce(gitService.getCurrentBranch);
+    sinon.assert.calledOnce(gitService.getOwnerAndRepo);
+    sinon.assert.calledOnce(gitService.detectCIType);
+    sinon.assert.calledOnce(statusBarService.updateEverything);
   });
 
-  test("updateStatusBar should handle errors gracefully", async () => {
-    const testError = new Error("Test error");
-    (gitService.initializeGit as sinon.SinonStub).rejects(testError);
+  test('updateStatusBar should not update when GitService is not initialized', async () => {
+    gitService.isInitialized.returns(false);
+    gitService.initialize.resolves(false);
 
-    await statusBarUpdaterModule.updateStatusBar(gitService, statusBarService, "main", ciService);
+    await updateStatusBar(gitService, statusBarService);
 
-    sinon.assert.calledOnce(showErrorStub);
-    sinon.assert.calledWith(showErrorStub, testError, "Error fetching git data");
-    sinon.assert.calledOnce(statusBarService.clearStatusBar as sinon.SinonStub);
-    sinon.assert.calledOnce(logErrorStub);
-    sinon.assert.calledWith(logErrorStub, "Error updating status bar:", testError);
+    sinon.assert.calledOnce(gitService.isInitialized);
+    sinon.assert.calledOnce(gitService.initialize);
+    sinon.assert.notCalled(statusBarService.updateEverything);
+  });
+
+  test('updateStatusBar should not update when no Git repository is detected', async () => {
+    gitService.isInitialized.returns(true);
+    gitService.getCurrentRepo.resolves(null);
+
+    await updateStatusBar(gitService, statusBarService);
+
+    sinon.assert.calledOnce(gitService.isInitialized);
+    sinon.assert.calledOnce(gitService.getCurrentRepo);
+    sinon.assert.notCalled(statusBarService.updateEverything);
+  });
+
+  test('createStatusBarUpdater should return an object with updateNow and debouncedUpdate functions', () => {
+    const updater = createStatusBarUpdater(gitService, statusBarService);
+
+    assert.strictEqual(typeof updater.updateNow, 'function');
+    assert.strictEqual(typeof updater.debouncedUpdate, 'function');
+  });
+
+  test('createStatusBarUpdater.updateNow should call updateStatusBar', async () => {
+    const updater = createStatusBarUpdater(gitService, statusBarService);
+    gitService.isInitialized.returns(true);
+    gitService.getCurrentRepo.resolves('testrepo');
+    gitService.getCurrentBranch.resolves('main');
+    gitService.getOwnerAndRepo.resolves({ owner: 'testowner', repo: 'testrepo' });
+    gitService.detectCIType.returns('github');
+
+    await updater.updateNow();
+
+    sinon.assert.calledOnce(statusBarService.updateEverything);
   });
 });

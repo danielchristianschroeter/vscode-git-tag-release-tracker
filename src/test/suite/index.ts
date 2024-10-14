@@ -1,6 +1,7 @@
 import path from 'path';
 import Mocha from 'mocha';
 import { glob } from 'glob';
+import { setupTestEnvironment, teardownTestEnvironment } from './testSetup';
 
 export async function run(): Promise<void> {
   const mocha = new Mocha({
@@ -9,6 +10,20 @@ export async function run(): Promise<void> {
   });
 
   const testsRoot = path.resolve(__dirname, '..');
+
+  // Add root hooks
+  mocha.rootHooks({
+    beforeAll: function() {
+      const testEnv = setupTestEnvironment();
+      (global as any).testSandbox = testEnv.sandbox;
+    },
+    afterAll: function() {
+      const sandbox = (global as any).testSandbox;
+      if (sandbox) {
+        teardownTestEnvironment(sandbox);
+      }
+    }
+  });
 
   try {
     const files = await glob('**/**.test.js', { cwd: testsRoot });

@@ -2,56 +2,69 @@
 
 [![Visual Studio Marketplace](https://img.shields.io/visual-studio-marketplace/v/DanielChristianSchroeter.git-tag-release-tracker?style=flat&label=Visual%20Studio%20Marketplace)](https://marketplace.visualstudio.com/items?itemName=DanielChristianSchroeter.git-tag-release-tracker) [![Visual Studio Marketplace Installs](https://img.shields.io/visual-studio-marketplace/i/DanielChristianSchroeter.git-tag-release-tracker?style=flat&label=Visual%20Studio%20Marketplace%20Installs&logo=visual-studio-code)](https://marketplace.visualstudio.com/items?itemName=DanielChristianSchroeter.git-tag-release-tracker) [![OpenVSX Registry Downloads](https://img.shields.io/open-vsx/dt/DanielChristianSchroeter/git-tag-release-tracker?style=flat&label=OpenVSX%20Downloads)](https://open-vsx.org/extension/DanielChristianSchroeter/git-tag-release-tracker)
 
-The **Git Tag Release Tracker** extension for Visual Studio Code allows you to manage and track your Git tags and releases directly within Visual Studio Code. Easily increment your Major, Minor, or Patch semantic versioning with a single click in the status bar. This extension now supports both GitHub Actions and GitLab CI/CD pipelines with automatic detection.
+The **Git Tag Release Tracker** extension for VS Code simplifies Git tag and release management. Increment semantic versions (Major, Minor, Patch) with a single click in the status bar. Automatically tracks and displays CI/CD build status for your tags and branches.
 
 ## Features
 
-- **Automatic Detection**: Automatically detects your Git repository, branch, the latest tags, and CI/CD system (GitHub Actions or GitLab CI).
-- **Status Bar Integration**: Displays the number of unreleased commits, the latest tag version, and CI/CD status in the VS Code status bar.
-- **Tag Management**: Provides buttons to create major, minor, and patch tags directly from the status bar.
-- **Initial Tag Creation**: Easily create an initial version tag (1.0.0) if no tags are present.
-- **Compare Commits**: Open a compare link to view changes between the latest tag and the current branch on GitHub/GitLab.
-- **CI/CD Integration**: Shows the build status of the latest tag directly in the status bar for both GitHub Actions and GitLab CI/CD.
-- **Manual Refresh**: Refresh the build status manually using the "Refresh Build Status" command. (This is needed because the status bar item is updated periodically, but not in response to all events.)
+- **Automatic Detection**: Detects Git repository, branch, latest tags, and CI/CD system (GitHub Actions or GitLab Pipelines).
+- **Status Bar Integration**: Shows unmerged and unreleased commits, latest tag version, and CI/CD status.
+- **Tag Management**: Increase major, minor, or patch version tags from the status bar. If existing tags are present, it preserves existing prefixes and suffixes from the latest tag.
+- **CI/CD Integration**: Displays build status for latest tag and current branch.
+- **Compare Commits**: Open a GitHub/GitLab compare link to view changes between tags/branches.
+- **Automatic Updates**: Status bar automatically updates build status on repository and/or branch changes, as well as after any push.
 
 **Note**: This extension only supports [Semantic Versioning](https://semver.org/) for tag management. Make sure your project follows the SemVer specification for optimal use of this extension.
+
+### Default Branch vs Feature Branch Status Bar
+
+When you're on the default branch (e.g., main or master):
+
+- You'll see buttons for creating new version tags (major, minor, patch) if existing tags exist.
+- The status bar shows the number of unreleased commits since the last tag.
+- Both the latest tag build status and the current branch build status are displayed.
+
+When you're on any other (feature/topic) branch:
+
+- Version tag creation buttons are hidden.
+- The status bar shows both unreleased commits on the default branch and unmerged commits on your current branch.
+- The current branch build status is displayed.
 
 ### Screenshots
 
 <p align="center">
-<img src="images/status-bar-create-and-push-initial-version-tag.png" alt="Create Initial Version Tag" width=95%>
+<img src="images/default-branch-with-unreleased-commits-and-increase--minor-version.png" alt="Default Branch with Unreleased Commits" width=95%>
 <br/>
-<em>Create initial version tag (1.0.0) when no tags exist</em>
+<em>Default branch with unreleased commits and option to increase minor version</em>
 </p>
 
 <p align="center">
-<img src="images/status-bar-create-and-push-new-version-keep-prefix-and-stuffix.png" alt="Preserve Prefix and Suffix" width=95%>
+<img src="images/default-branch-creating-initial-tag.png" alt="Creating Initial Tag" width=95%>
 <br/>
-<em>Preserve existing prefixes and suffixes in version tags</em>
+<em>Creating an initial version tag on the default branch</em>
 </p>
 
 <p align="center">
-<img src="images/status-bar-create-and-push-new-version.png" alt="Increment Version" width=95%>
+<img src="images/default-branch-creating-minor-tag.png" alt="Creating Minor Tag" width=95%>
 <br/>
-<em>Increment Major, Minor, or Patch version with a single click</em>
+<em>Creating a minor tag on the default branch</em>
 </p>
 
 <p align="center">
-<img src="images/status-bar-show-current-github-or-gitlab-build-status.png" alt="Current Branch Build Status" width=95%>
+<img src="images/default-branch-show-tag-build-status-result-notification.png" alt="Tag Build Status Result Notification" width=95%>
 <br/>
-<em>View current branch build status in VS Code status bar</em>
+<em>Notification showing the result of a tag build status check</em>
 </p>
 
 <p align="center">
-<img src="images/status-bar-show-github-workflow-gitlab-pipeline-build-status-for-branch.png" alt="Workflow/Pipeline Build Status for Branch" width=95%>
+<img src="images/default-branch-show-tag-build-status.png" alt="Tag Build Status" width=95%>
 <br/>
-<em>Display GitHub Actions or GitLab Pipeline CI/CD build status for current branch</em>
+<em>Status bar showing tag build status on the default branch</em>
 </p>
 
 <p align="center">
-<img src="images/status-bar-show-github-workflow-gitlab-pipeline-build-status-for-tag.png" alt="Workflow/Pipeline Build Status for Tag" width=95%>
+<img src="images/feature-branch-with-unreleased-and-unmerged-commits-and-branch-build-status.png" alt="Feature Branch with Unreleased and Unmerged Commits" width=95%>
 <br/>
-<em>Show GitHub Actions or GitLab Pipeline CI/CD build status for tags</em>
+<em>Feature branch showing unreleased and unmerged commits, along with branch build status</em>
 </p>
 
 ## Requirements
@@ -67,9 +80,8 @@ The **Git Tag Release Tracker** extension for Visual Studio Code allows you to m
 
 ## Extension Settings
 
-This extension contributes the following settings:
+This extension contributes the following setting:
 
-- `gitTagReleaseTracker.defaultBranch`: Specifies the default branch used for release versioning (e.g., main, master, production). Default is `main`.
 - `gitTagReleaseTracker.ciProviders`: Configuration for different CI providers (GitHub and GitLab).
 
 ## Setting up CI/CD Status Checks
@@ -83,11 +95,11 @@ This extension contributes the following settings:
    ```json
    "gitTagReleaseTracker.ciProviders": {
      "github": {
-       "token": "your-github-token-here",
+       "token": "your-github-token",
        "apiUrl": "https://api.github.com"
      },
      "gitlab": {
-       "token": "your-gitlab-token-here",
+       "token": "your-gitlab-token",
        "apiUrl": "https://gitlab.com"  // or your self-hosted GitLab URL
      }
    }
@@ -107,9 +119,10 @@ Note: You can configure both GitHub and GitLab providers simultaneously if you w
 
 This extension contributes the following commands:
 
-- `Git Tag Release Tracker: Refresh Branch Build Status`: Manually refresh the build status for the current branch.
+- `Git Tag Release Tracker: Refresh Branch Build Status`: Manually force refresh the build status for the current branch.
+- `Git Tag Release Tracker: Show Logs`: Open the extension's log output channel.
 
-You can access this command through the Command Palette (Ctrl+Shift+P or Cmd+Shift+P on macOS) by typing "Git Tag Release Tracker".
+You can access these commands through the Command Palette (Ctrl+Shift+P or Cmd+Shift+P on macOS) by typing "Git Tag Release Tracker".
 
 ## Semantic Versioning
 
@@ -122,3 +135,15 @@ This extension adheres to Semantic Versioning 2.0.0 as defined at [semver.org](h
 Additional labels for pre-release and build metadata are available as extensions to the MAJOR.MINOR.PATCH format.
 
 For more details on Semantic Versioning, please refer to the [official SemVer specification](https://semver.org/).
+
+## Troubleshooting
+
+If you encounter any issues:
+
+1. Check the extension logs by running the "Git Tag Release Tracker: Show Logs" command.
+2. Ensure your CI tokens are correctly configured in the extension settings.
+3. Verify that your repository has a valid remote URL and is properly connected to GitHub or GitLab.
+
+## Feedback and Contributions
+
+Your feedback and contributions are welcome! Please submit issues or pull requests on the [GitHub repository](https://github.com/danielchristianschroeter/vscode-git-tag-release-tracker).

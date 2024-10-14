@@ -1,5 +1,34 @@
 # Changelog
 
+## [2.3.0]
+
+### Added
+
+- Improved branch change detection and handling in StatusBarService
+- Immediate polling for build status after pushing changes
+- Support for detecting and handling in-progress CI statuses
+- Rate limit checking and warning for CI API requests
+- Separate caching mechanisms for different repositories in CIService
+
+### Changed
+
+- Enhanced error handling and logging throughout the extension
+- Optimized status bar updates to reduce unnecessary refreshes
+- Improved handling of repository and branch switches
+- Updated GitService to emit events on repository changes
+
+### Improved
+
+- More robust CI status polling with adaptive intervals
+- Better caching strategy for CI build statuses
+- Enhanced logging for easier debugging and troubleshooting
+- Refined error messages and user feedback for CI operations
+
+### Fixed
+
+- Issues with status bar not updating correctly on branch changes
+- Potential race conditions in simultaneous CI status checks
+
 ## [2.2.0]
 
 ### Added

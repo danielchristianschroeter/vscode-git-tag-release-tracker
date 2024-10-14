@@ -8,11 +8,11 @@
   "publisher": "DanielChristianSchroeter",
   "version": "0.0.1",
   "engines": {
-    "vscode": "^1.91.1"
+    "vscode": "^1.93.1"
   },
   "categories": [
-    "Other",
-    "SCM Providers"
+    "SCM Providers",
+    "Other"
   ],
   "repository": {
     "type": "git",
@@ -23,9 +23,7 @@
     "tag",
     "release",
     "version",
-    "tracker",
     "ci",
-    "continuous integration",
     "build",
     "status",
     "github",
@@ -39,12 +37,8 @@
     "repository",
     "commit",
     "branch",
-    "vscode",
-    "extension",
-    "development",
     "productivity",
-    "collaboration",
-    "version control"
+    "collaboration"
   ],
   "activationEvents": [
     "workspaceContains:.git"
@@ -76,6 +70,10 @@
         "title": "Open Branch Build Status"
       },
       {
+        "command": "extension.openTagBuildStatus",
+        "title": "Open Tag Build Status"
+      },
+      {
         "command": "extension.refreshBranchBuildStatus",
         "title": "Refresh Branch Build Status"
       },
@@ -84,19 +82,14 @@
         "title": "Create Initial Version Tag"
       },
       {
-        "command": "extension.openBuildStatus",
-        "title": "Open Build Status"
+        "command": "gitTagReleaseTracker.showLogs",
+        "title": "Git Tag Release Tracker: Show extension Logs"
       }
     ],
     "configuration": {
       "type": "object",
       "title": "Git Tag Release Tracker",
       "properties": {
-        "gitTagReleaseTracker.defaultBranch": {
-          "type": "string",
-          "default": "main",
-          "description": "Default branch name for the repository"
-        },
         "gitTagReleaseTracker.ciProviders": {
           "type": "object",
           "description": "CI provider configurations",
@@ -110,11 +103,6 @@
               "apiUrl": "https://gitlab.com/api/v4"
             }
           }
-        },
-        "gitTagReleaseTracker.refreshInterval": {
-          "type": "number",
-          "default": 300,
-          "description": "Interval (in seconds) to refresh the current branch build status"
         }
       }
     }
@@ -137,25 +125,25 @@
     "test": "vscode-test"
   },
   "devDependencies": {
-    "@types/mocha": "^10.0.8",
+    "@types/mocha": "^10.0.9",
     "@types/mock-fs": "^4.13.4",
-    "@types/node": "22.7.4",
+    "@types/node": "22.7.5",
     "@types/semver": "^7.5.8",
     "@types/sinon": "^17.0.3",
-    "@types/vscode": "^1.91.1",
-    "@typescript-eslint/eslint-plugin": "^8.8.0",
-    "@typescript-eslint/parser": "^8.8.0",
+    "@types/vscode": "^1.93.1",
+    "@typescript-eslint/eslint-plugin": "^8.9.0",
+    "@typescript-eslint/parser": "^8.9.0",
     "@vscode/test-cli": "^0.0.10",
     "@vscode/test-electron": "^2.4.1",
     "@vscode/vsce": "^3.1.1",
     "chai": "^5.1.1",
     "esbuild": "^0.24.0",
-    "eslint": "^9.11.1",
+    "eslint": "^9.12.0",
     "mocha": "^10.7.3",
-    "mock-fs": "^5.3.0",
+    "mock-fs": "^5.4.0",
     "npm-run-all": "^4.1.5",
     "sinon": "^19.0.2",
-    "typescript": "^5.6.2"
+    "typescript": "^5.6.3"
   },
   "dependencies": {
     "axios": "^1.7.7",
@@ -166,5 +154,6 @@
   "bugs": {
     "url": "https://github.com/danielchristianschroeter/vscode-git-tag-release-tracker/issues"
   },
-  "homepage": "https://github.com/danielchristianschroeter/vscode-git-tag-release-tracker#readme"
+  "homepage": "https://github.com/danielchristianschroeter/vscode-git-tag-release-tracker#readme",
+  "pricing": "Free"
 }

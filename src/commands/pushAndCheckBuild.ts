@@ -2,8 +2,8 @@ import * as vscode from "vscode";
 import { GitService } from "../services/gitService";
 import { StatusBarService } from "../services/statusBarService";
 import { CIService } from "../services/ciService";
-import { showError } from "../utils/errorHandler";
-import { updateStatusBar } from "../utils/statusBarUpdater";
+import { handleError } from "../utils/errorHandler";
+import { Logger } from '../utils/logger';
 
 export async function pushAndCheckBuild(
   gitService: GitService,
@@ -11,14 +11,19 @@ export async function pushAndCheckBuild(
   ciService: CIService
 ) {
   try {
-    const currentBranch = gitService.getCurrentBranch();
+    const currentBranch = await gitService.getCurrentBranch();
+    if (!currentBranch) {
+      throw new Error('Unable to determine current branch');
+    }
+
     await gitService.pushChanges(currentBranch);
     vscode.window.showInformationMessage(`Pushed changes to ${currentBranch}`);
 
-    const { owner, repo } = await gitService.getOwnerAndRepo();
-    if (!owner || !repo) {
+    const ownerAndRepo = await gitService.getOwnerAndRepo();
+    if (!ownerAndRepo) {
       throw new Error('Unable to determine owner and repo');
     }
+    const { owner, repo } = ownerAndRepo;
 
     const ciType = gitService.detectCIType();
     if (!ciType) {
@@ -29,8 +34,11 @@ export async function pushAndCheckBuild(
     ciService.clearCacheForBranch(currentBranch, owner, repo, ciType);
 
     // Immediately set status to pending
-    statusBarService.updateBranchBuildStatus('pending', currentBranch, '', repo);
+    await statusBarService.updateCIStatus('pending', currentBranch, '', false);
     vscode.window.showInformationMessage(`Checking build status for ${owner}/${repo} branch ${currentBranch}...`);
+
+    // Add a delay before starting to poll
+    await new Promise(resolve => setTimeout(resolve, 5000)); // 5 seconds delay
 
     // Start immediate polling for branch
     await pollBuildStatusImmediate(currentBranch, owner, repo, ciType, ciService, statusBarService, false);
@@ -42,7 +50,7 @@ export async function pushAndCheckBuild(
     }
 
   } catch (error) {
-    showError(error, "Error pushing changes and checking build status");
+    handleError(error, "Error pushing changes and checking build");
   }
 }
 
@@ -65,13 +73,9 @@ export async function pollBuildStatusImmediate(
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     try {
       const { status, url, message } = await ciService.getImmediateBuildStatus(ref, owner, repo, ciType, isTag);
-      console.log(`Build status for ${owner}/${repo} ${isTag ? 'tag' : 'branch'} ${ref}: ${status}`);
+      Logger.log(`Build status for ${owner}/${repo} ${isTag ? 'tag' : 'branch'} ${ref}: ${status}`, 'INFO');
       
-      if (isTag) {
-        statusBarService.updateBuildStatus(status, ref, url, repo);
-      } else {
-        statusBarService.updateBranchBuildStatus(status, ref, url, repo);
-      }
+      await statusBarService.updateCIStatus(status, ref, url, isTag);
 
       if (finalStatuses.includes(status)) {
         vscode.window.showInformationMessage(`Build status ${status} for ${isTag ? 'tag' : 'branch'} ${ref} (${owner}/${repo})`);
@@ -88,7 +92,7 @@ export async function pollBuildStatusImmediate(
       
       await new Promise(resolve => setTimeout(resolve, interval));
     } catch (error) {
-      console.error(`Error polling ${owner}/${repo} ${isTag ? 'tag' : 'branch'} ${ref} build status:`, error);
+      Logger.log(`Error polling ${owner}/${repo} ${isTag ? 'tag' : 'branch'} ${ref} build status: ${error instanceof Error ? error.message : String(error)}`, 'ERROR');
       vscode.window.showErrorMessage(`Error checking ${isTag ? 'tag' : 'branch'} ${ref} build status. Please check your CI configuration. (${owner}/${repo})`);
       return;
     }
@@ -96,4 +100,3 @@ export async function pollBuildStatusImmediate(
 
   vscode.window.showInformationMessage(`Build status check timed out for ${isTag ? 'tag' : 'branch'} ${ref}. Check CI dashboard. (${owner}/${repo})`);
 }
-
