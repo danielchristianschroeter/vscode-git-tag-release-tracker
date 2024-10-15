@@ -6,7 +6,6 @@ import semver from 'semver';
 import { debounce } from '../utils/debounce';
 
 export class StatusBarService {
-  private statusBarItem: vscode.StatusBarItem;
   private branchBuildStatusItem: vscode.StatusBarItem;
   private tagBuildStatusItem: vscode.StatusBarItem;
   private buttons: vscode.StatusBarItem[];
@@ -17,15 +16,23 @@ export class StatusBarService {
   private branchBuildStatusUrl: string | undefined;
   private tagBuildStatusUrl: string | undefined;
   private compareUrl: string | undefined;
-  private lastUpdateTime: number = 0;
-  private updateCooldown: number = 20000; // 20 seconds cooldown
-  private isUpdating: boolean = false;
   private debouncedUpdateEverything: (forceRefresh: boolean) => void;
   private inProgressRefreshIntervals: { [key: string]: NodeJS.Timeout } = {};
   private lastKnownStatuses: { [key: string]: string } = {};
-  private lastUpdateRepo: string | null = null;
-  private lastUpdateBranch: string | null = null;
   private debouncedRefreshAfterPush: () => void;
+  private cachedData: {
+    currentBranch: string | null;
+    defaultBranch: string | null;
+    latestTag: TagResult | null;
+    unreleasedCount: number | null;
+    ownerAndRepo: { owner: string; repo: string } | null;
+  } = {
+    currentBranch: null,
+    defaultBranch: null,
+    latestTag: null,
+    unreleasedCount: null,
+    ownerAndRepo: null
+  };
 
   constructor(
     private readonly commandIds: string[],
@@ -33,7 +40,6 @@ export class StatusBarService {
     private readonly gitService: GitService,
     private readonly ciService: CIService
   ) {
-    this.statusBarItem = this.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
     this.branchBuildStatusItem = this.createStatusBarItem(vscode.StatusBarAlignment.Left, 98);
     this.tagBuildStatusItem = this.createStatusBarItem(vscode.StatusBarAlignment.Left, 97);
     this.buttons = this.createButtons();
@@ -47,7 +53,6 @@ export class StatusBarService {
     Logger.log("StatusBarService constructor called", 'INFO');
     Logger.log(`Number of buttons created: ${this.buttons.length}`, 'INFO');
 
-    // Add this line to trigger an initial update
     this.updateEverything(true);
   }
 
@@ -67,19 +72,8 @@ export class StatusBarService {
   }
 
   public clearStatusBar() {
-    this.statusBarItem.text = '';
-    this.statusBarItem.tooltip = '';
-    this.statusBarItem.command = undefined;
-    this.statusBarItem.hide();
     this.branchBuildStatusItem.hide();
     this.buttons.forEach(button => button.hide());
-  }
-
-  public updateMainStatus(text: string, tooltip: string, command?: string) {
-    this.statusBarItem.text = text;
-    this.statusBarItem.tooltip = tooltip;
-    this.statusBarItem.command = command;
-    this.statusBarItem.show();
   }
 
   public async updateCIStatus(status: string, ref: string, url: string, isTag: boolean) {
@@ -162,38 +156,53 @@ export class StatusBarService {
   }
 
   private async updateVersionButtons() {
-    const currentBranch = await this.gitService.getCurrentBranch();
-    const defaultBranch = await this.gitService.getDefaultBranch();
-    const isDefaultBranch = currentBranch === defaultBranch;
-    const tags = await this.gitService.fetchAndTags();
-    const unreleasedCount = await this.gitService.getCommitCounts(tags?.latest ?? null, currentBranch ?? '');
+    Logger.log("Entering updateVersionButtons method", 'DEBUG');
+    
+    if (!this.cachedData.currentBranch || !this.cachedData.defaultBranch || this.cachedData.unreleasedCount === null || !this.cachedData.ownerAndRepo) {
+      Logger.log(`Missing data: currentBranch=${!!this.cachedData.currentBranch}, defaultBranch=${!!this.cachedData.defaultBranch}, unreleasedCount=${this.cachedData.unreleasedCount}, ownerAndRepo=${!!this.cachedData.ownerAndRepo}`, 'DEBUG');
+      return;
+    }
+
+    const isDefaultBranch = this.cachedData.currentBranch === this.cachedData.defaultBranch;
+    const { owner, repo } = this.cachedData.ownerAndRepo;
+
+    Logger.log(`Current branch: ${this.cachedData.currentBranch}, Default branch: ${this.cachedData.defaultBranch}`, 'DEBUG');
+    Logger.log(`Is default branch: ${isDefaultBranch}, Unreleased count: ${this.cachedData.unreleasedCount}`, 'DEBUG');
+    Logger.log(`Latest tag: ${this.cachedData.latestTag?.latest}`, 'DEBUG');
 
     // Hide all version buttons initially
     this.hideAllVersionButtons();
 
-    if (isDefaultBranch && unreleasedCount > 0) {
-      if (!tags || !tags.latest) {
-        this.showInitialVersionButton();
+    if (isDefaultBranch && this.cachedData.unreleasedCount > 0) {
+      if (!this.cachedData.latestTag?.latest) {
+        Logger.log("Showing initial version button", 'DEBUG');
+        this.showInitialVersionButton(owner, repo);
       } else {
-        this.showIncrementButtons(tags.latest);
+        Logger.log("Showing increment buttons", 'DEBUG');
+        this.showIncrementButtons(this.cachedData.latestTag.latest, owner, repo);
       }
+    } else {
+      Logger.log(`Not showing version buttons. isDefaultBranch=${isDefaultBranch}, unreleasedCount=${this.cachedData.unreleasedCount}`, 'DEBUG');
     }
+
+    Logger.log(`Version buttons updated. Is default branch: ${isDefaultBranch}, Latest tag: ${this.cachedData.latestTag?.latest}, Unreleased count: ${this.cachedData.unreleasedCount}`, 'INFO');
   }
 
-  private hideAllVersionButtons() {
+  public hideAllVersionButtons() {
     this.buttons.slice(0, 4).forEach(button => {
       button.hide();
     });
   }
 
-  private showInitialVersionButton() {
-    this.hideAllVersionButtons();
-    this.updateButton(3, "1.0.0", "Create initial version tag 1.0.0");
+  private showInitialVersionButton(owner: string, repo: string) {
+    Logger.log(`Attempting to show initial version button for ${owner}/${repo}`, 'DEBUG');
+    this.updateButton(3, "1.0.0", `Create initial version tag 1.0.0 for ${owner}/${repo}`);
     this.buttons[3].command = 'extension.createInitialTag';
     this.buttons[3].show();
+    Logger.log("Initial version button should now be visible", 'DEBUG');
   }
 
-  private showIncrementButtons(latestTag: string) {
+  private showIncrementButtons(latestTag: string, owner: string, repo: string) {
     const match = latestTag.match(/^([^\d]*)(\d+\.\d+\.\d+)(.*)$/);
     if (match) {
       const [, prefix, version, suffix] = match;
@@ -203,7 +212,7 @@ export class StatusBarService {
           this.updateButton(
             index,
             `${newVersion}`,
-            `Create and push ${type} tag version ${prefix}${newVersion}${suffix}`
+            `Create and push ${type} tag version ${prefix}${newVersion}${suffix} for ${owner}/${repo}`
           );
           this.buttons[index].command = `extension.create${type.charAt(0).toUpperCase() + type.slice(1)}Tag`;
           this.buttons[index].show();
@@ -215,63 +224,64 @@ export class StatusBarService {
   }
 
   public async updateCommitCountButton(forceRefresh: boolean = false) {
-    const [currentBranch, defaultBranch, ownerAndRepo, tags] = await Promise.all([
-      this.gitService.getCurrentBranch(),
-      this.gitService.getDefaultBranch(),
-      this.gitService.getOwnerAndRepo(),
-      this.gitService.fetchAndTags(forceRefresh)
-    ]);
-
-    if (!currentBranch || !defaultBranch || !ownerAndRepo) {
+    if (!this.cachedData.currentBranch || !this.cachedData.defaultBranch || !this.cachedData.ownerAndRepo) {
       Logger.log('Unable to update commit count button: missing branch or repo information', 'WARNING');
       return;
     }
 
-    const { owner, repo } = ownerAndRepo;
-    const isDefaultBranch = currentBranch === defaultBranch;
+    const { owner, repo } = this.cachedData.ownerAndRepo;
+    const isDefaultBranch = this.cachedData.currentBranch === this.cachedData.defaultBranch;
 
     let unreleasedCount = 0;
     let unmergedCount = 0;
 
-    if (isDefaultBranch && tags && tags.latest) {
-      unreleasedCount = await this.gitService.getCommitCounts(tags.latest, defaultBranch);
+    // Force refresh the latest tag
+    if (forceRefresh) {
+      this.cachedData.latestTag = await this.gitService.fetchAndTags(true);
+    }
+
+    if (isDefaultBranch && this.cachedData.latestTag?.latest) {
+      unreleasedCount = await this.gitService.getCommitCounts(this.cachedData.latestTag.latest, this.cachedData.defaultBranch, forceRefresh);
     } else if (!isDefaultBranch) {
-      unmergedCount = await this.gitService.getCommitCounts(defaultBranch, currentBranch);
-      if (tags && tags.latest) {
-        unreleasedCount = await this.gitService.getCommitCounts(tags.latest, defaultBranch);
+      unmergedCount = await this.gitService.getCommitCounts(this.cachedData.defaultBranch, this.cachedData.currentBranch, forceRefresh);
+      if (this.cachedData.latestTag?.latest) {
+        unreleasedCount = await this.gitService.getCommitCounts(this.cachedData.latestTag.latest, this.cachedData.defaultBranch, forceRefresh);
       }
     }
+
+    // Update the cached unreleased count
+    this.cachedData.unreleasedCount = unreleasedCount;
 
     let buttonText = '';
     let tooltipText = '';
 
     if (isDefaultBranch) {
-      if (!tags || tags.all.length === 0) {
-        const totalCommits = await this.gitService.getCommitCounts(null, currentBranch);
+      if (!this.cachedData.latestTag?.latest) {
+        const totalCommits = await this.gitService.getCommitCounts(null, this.cachedData.currentBranch, forceRefresh);
         buttonText = `${totalCommits} unreleased commits`;
-        tooltipText = `${totalCommits} unreleased commits in ${owner}/${repo}/${currentBranch}\nClick to open compare view for all commits`;
+        tooltipText = `${totalCommits} unreleased commits in ${owner}/${repo}/${this.cachedData.currentBranch}\nClick to open compare view for all commits`;
       } else {
         buttonText = `${unreleasedCount} unreleased commits`;
-        tooltipText = `${unreleasedCount} unreleased commits in ${owner}/${repo}/${currentBranch} since tag ${tags.latest}\nClick to open compare view for unreleased commits`;
+        tooltipText = `${unreleasedCount} unreleased commits in ${owner}/${repo}/${this.cachedData.currentBranch} since tag ${this.cachedData.latestTag.latest}\nClick to open compare view for unreleased commits`;
       }
     } else {
       if (unmergedCount > 0) {
         buttonText = `${unmergedCount} unmerged commits`;
-        tooltipText = `${unmergedCount} unmerged commits in ${owner}/${repo}/${currentBranch} compared to ${defaultBranch}`;
+        tooltipText = `${unmergedCount} unmerged commits in ${owner}/${repo}/${this.cachedData.currentBranch} compared to ${this.cachedData.defaultBranch}`;
       } else {
         buttonText = `No unmerged commits`;
-        tooltipText = `All commits in ${owner}/${repo}/${currentBranch} are merged to ${defaultBranch}`;
+        tooltipText = `All commits in ${owner}/${repo}/${this.cachedData.currentBranch} are merged to ${this.cachedData.defaultBranch}`;
       }
 
       if (unreleasedCount > 0) {
         buttonText += `, ${unreleasedCount} unreleased`;
-        tooltipText += `\n${unreleasedCount} unreleased commits on ${owner}/${repo}/${defaultBranch} since tag ${tags?.latest}`;
+        tooltipText += `\n${unreleasedCount} unreleased commits on ${owner}/${repo}/${this.cachedData.defaultBranch} since tag ${this.cachedData.latestTag?.latest}`;
       }
 
       tooltipText += `\nClick to open compare view`;
     }
 
-    const buttonIndex = 4; // Adjust this index if needed
+    const buttonIndex = 4;
     Logger.log(`Commit count button updated: ${buttonText}`, 'INFO');
     this.updateButton(buttonIndex, buttonText, tooltipText);
     this.buttons[buttonIndex].command = 'extension.openCompareLink';
@@ -334,80 +344,65 @@ export class StatusBarService {
   }
 
   public async updateEverything(forceRefresh: boolean = false): Promise<void> {
-    const now = Date.now();
-    const currentRepo = await this.gitService.getCurrentRepo();
-    const currentBranch = await this.gitService.getCurrentBranch();
-
-    if (!forceRefresh && 
-        now - this.lastUpdateTime < this.updateCooldown &&
-        currentRepo === this.lastUpdateRepo &&
-        currentBranch === this.lastUpdateBranch) {
-      Logger.log("Update skipped due to cooldown or no change in repo/branch", 'INFO');
-      return;
+    if (forceRefresh) {
+      this.clearCache();
     }
 
-    if (this.isUpdating) {
-      Logger.log("Update already in progress, skipping", 'INFO');
-      return;
-    }
-    this.isUpdating = true;
+    await this.updateCachedData();
 
-    try {
-      if (!this.gitService.isInitialized()) {
-        Logger.log("GitService not initialized, attempting to initialize...", 'INFO');
-        const initialized = await this.gitService.initialize();
-        if (!initialized) {
-          Logger.log("Failed to initialize GitService, skipping update", 'ERROR');
-          return;
-        }
-      }
+    if (this.cachedData.currentBranch && this.cachedData.ownerAndRepo && this.cachedData.defaultBranch) {
+      const { owner, repo } = this.cachedData.ownerAndRepo;
+      const ciType = await this.gitService.detectCIType();
 
-      const [defaultBranch, ownerAndRepo, ciType] = await Promise.all([
-        this.gitService.getDefaultBranch(),
-        this.gitService.getOwnerAndRepo(),
-        this.gitService.detectCIType()
+      await Promise.all([
+        this.updateVersionButtons(),
+        this.updateCommitCountButton(),
+        this.updateCompareUrl(),
+        ...(ciType ? [
+          this.updateBranchBuildStatus(owner, repo, ciType, forceRefresh),
+          this.updateTagBuildStatus(owner, repo, ciType, forceRefresh)
+        ] : [])
       ]);
 
-      Logger.log(`Current repo: ${currentRepo}, Current branch: ${currentBranch}, Owner/Repo: ${JSON.stringify(ownerAndRepo)}, CI Type: ${ciType}`, 'INFO');
-
-      if (currentBranch && ownerAndRepo && ciType) {
-        const { owner, repo } = ownerAndRepo;
-        const isDefaultBranch = currentBranch === defaultBranch;
-
-        Logger.log(`Current branch: ${currentBranch}, Default branch: ${defaultBranch}`, 'INFO');
-        Logger.log(`Is default branch: ${isDefaultBranch}`, 'INFO');
-
-        // Update version buttons first
-        if (isDefaultBranch) {
-          await this.updateVersionButtons();
-        } else {
-          this.hideAllVersionButtons();
-        }
-
-        // Then update other elements
-        await Promise.all([
-          this.updateCommitCountButton(forceRefresh),
-          this.updateBranchBuildStatus(currentBranch, owner, repo, ciType, forceRefresh),
-          isDefaultBranch ? this.updateTagBuildStatus(owner, repo, ciType, forceRefresh) : Promise.resolve(),
-          this.updateCompareUrl()
-        ]);
-      } else {
-        Logger.log("Missing required information, clearing status bar items", 'WARNING');
-        this.clearAllItems();
+      if (!ciType) {
+        Logger.log("CI type not detected, skipping build status updates", 'WARNING');
       }
-
-      this.lastUpdateTime = now;
-      this.lastUpdateRepo = currentRepo;
-      this.lastUpdateBranch = currentBranch;
-      Logger.log("Status bar updated successfully", 'INFO');
-    } catch (error) {
-      Logger.log(`Error updating status bar: ${error instanceof Error ? error.message : String(error)}`, 'ERROR');
-      if (error instanceof Error && error.stack) {
-        Logger.log(`Error stack: ${error.stack}`, 'ERROR');
-      }
-    } finally {
-      this.isUpdating = false;
     }
+  }
+
+  private async updateCachedData(): Promise<void> {
+    const [currentBranch, defaultBranch, ownerAndRepo, latestTag] = await Promise.all([
+      this.gitService.getCurrentBranch(),
+      this.gitService.getDefaultBranch(),
+      this.gitService.getOwnerAndRepo(),
+      this.gitService.fetchAndTags()
+    ]);
+
+    this.cachedData.currentBranch = currentBranch;
+    this.cachedData.defaultBranch = defaultBranch;
+    this.cachedData.ownerAndRepo = ownerAndRepo || null;
+    this.cachedData.latestTag = latestTag;
+
+    Logger.log(`Cached data updated: currentBranch=${currentBranch}, defaultBranch=${defaultBranch}, latestTag=${latestTag?.latest}`, 'DEBUG');
+
+    if (currentBranch && defaultBranch) {
+      const fromRef = latestTag?.latest || await this.gitService.getInitialCommit();
+      this.cachedData.unreleasedCount = await this.gitService.getCommitCounts(fromRef, currentBranch);
+      Logger.log(`Unreleased count calculated: ${this.cachedData.unreleasedCount} (from ${fromRef} to ${currentBranch})`, 'DEBUG');
+    } else {
+      this.cachedData.unreleasedCount = null;
+      Logger.log('Unable to calculate unreleased count: missing branch information', 'DEBUG');
+    }
+  }
+
+  private clearCache(): void {
+    this.cachedData = {
+      currentBranch: null,
+      defaultBranch: null,
+      latestTag: null,
+      unreleasedCount: null,
+      ownerAndRepo: null
+    };
   }
 
   public clearBranchBuildStatus() {
@@ -419,23 +414,22 @@ export class StatusBarService {
     this.tagBuildStatusItem.hide();
   }
 
-  public clearAllItems() {
-    this.statusBarItem.hide();
+  private clearAllItems() {
     this.branchBuildStatusItem.hide();
     this.tagBuildStatusItem.hide();
     this.buttons.forEach(button => button.hide());
   }
 
-  private async updateBranchBuildStatus(branch: string, owner: string, repo: string, ciType: 'github' | 'gitlab', forceRefresh: boolean = false) {
+  private async updateBranchBuildStatus(owner: string, repo: string, ciType: 'github' | 'gitlab', forceRefresh: boolean = false) {
     try {
-      const buildStatus = await this.ciService.getBuildStatus(branch, owner, repo, ciType, false, forceRefresh);
+      const buildStatus = await this.ciService.getBuildStatus(this.cachedData.currentBranch!, owner, repo, ciType, false, forceRefresh);
       if (buildStatus) {
-        await this.updateCIStatus(buildStatus.status, branch, buildStatus.url, false);
-        this.lastKnownStatuses[branch] = buildStatus.status;
+        await this.updateCIStatus(buildStatus.status, this.cachedData.currentBranch!, buildStatus.url, false);
+        this.lastKnownStatuses[this.cachedData.currentBranch!] = buildStatus.status;
         if (this.ciService.isInProgressStatus(buildStatus.status)) {
-          this.startRefreshingBranch(branch);
+          this.startRefreshingBranch(this.cachedData.currentBranch!);
         } else {
-          this.stopRefreshingBranch(branch);
+          this.stopRefreshingBranch(this.cachedData.currentBranch!);
         }
       } else {
         this.clearBranchBuildStatus();
@@ -447,17 +441,16 @@ export class StatusBarService {
   }
 
   private async updateTagBuildStatus(owner: string, repo: string, ciType: 'github' | 'gitlab', forceRefresh: boolean = false) {
-    const tags = await this.gitService.fetchAndTags();
-    const latestTag = tags?.latest;
-    if (!latestTag) {
+    if (!this.cachedData.latestTag?.latest) {
+      Logger.log('No tags found, clearing tag build status', 'INFO');
       this.clearTagBuildStatus();
       return;
     }
 
     try {
-      const buildStatus = await this.ciService.getBuildStatus(latestTag, owner, repo, ciType, true, forceRefresh);
+      const buildStatus = await this.ciService.getBuildStatus(this.cachedData.latestTag.latest, owner, repo, ciType, true, forceRefresh);
       if (buildStatus) {
-        await this.updateCIStatus(buildStatus.status, latestTag, buildStatus.url, true);
+        await this.updateCIStatus(buildStatus.status, this.cachedData.latestTag.latest, buildStatus.url, true);
       } else {
         this.clearTagBuildStatus();
       }
@@ -490,19 +483,13 @@ export class StatusBarService {
 
   private async updateCompareUrl(): Promise<void> {
     try {
-      const [currentBranch, defaultBranch, ownerAndRepo] = await Promise.all([
-        this.gitService.getCurrentBranch(),
-        this.gitService.getDefaultBranch(),
-        this.gitService.getOwnerAndRepo()
-      ]);
-
-      if (!currentBranch || !defaultBranch || !ownerAndRepo) {
+      if (!this.cachedData.currentBranch || !this.cachedData.defaultBranch || !this.cachedData.ownerAndRepo) {
         Logger.log('Missing required information for compare URL', 'WARNING');
         this.compareUrl = undefined;
         return;
       }
 
-      const { owner, repo } = ownerAndRepo;
+      const { owner, repo } = this.cachedData.ownerAndRepo;
       const repoInfo = await this.getBaseUrl();
       if (!repoInfo) {
         Logger.log('Unable to determine base URL for repository', 'WARNING');
@@ -512,15 +499,14 @@ export class StatusBarService {
 
       const { baseUrl, projectPath } = repoInfo;
 
-      if (currentBranch !== defaultBranch) {
-        this.compareUrl = `${baseUrl}/${projectPath}/compare/${defaultBranch}...${currentBranch}`;
+      if (this.cachedData.currentBranch !== this.cachedData.defaultBranch) {
+        this.compareUrl = `${baseUrl}/${projectPath}/compare/${this.cachedData.defaultBranch}...${this.cachedData.currentBranch}`;
       } else {
-        const tags = await this.gitService.fetchAndTags(true); // Force refresh
-        if (tags?.latest) {
-          this.compareUrl = `${baseUrl}/${projectPath}/compare/${tags.latest}...${currentBranch}`;
+        if (this.cachedData.latestTag?.latest) {
+          this.compareUrl = `${baseUrl}/${projectPath}/compare/${this.cachedData.latestTag.latest}...${this.cachedData.currentBranch}`;
         } else {
           const initialCommit = await this.gitService.getInitialCommit();
-          this.compareUrl = `${baseUrl}/${projectPath}/compare/${initialCommit}...${currentBranch}`;
+          this.compareUrl = `${baseUrl}/${projectPath}/compare/${initialCommit}...${this.cachedData.currentBranch}`;
         }
       }
       Logger.log(`Compare URL updated: ${this.compareUrl}`, 'INFO');
@@ -578,16 +564,11 @@ export class StatusBarService {
     // Clear CI service cache
     this.ciService.clearCache();
 
-    // Reset last update time to force a refresh
-    this.lastUpdateTime = 0;
-
     // Force refresh tags
     await this.gitService.fetchAndTags(true);
 
     // Force refresh for the new repository
     await this.updateEverything(true);
-
-    this.lastUpdateRepo = newRepo;
 
     // Handle branch change if it occurred during repo change
     if (oldBranch !== newBranch) {
@@ -665,8 +646,10 @@ export class StatusBarService {
 
     if (currentBranch && ownerAndRepo && ciType) {
       const { owner, repo } = ownerAndRepo;
-      await this.updateBranchBuildStatus(currentBranch, owner, repo, ciType, true);
+      await this.updateBranchBuildStatus(owner, repo, ciType, true);
       await this.updateCommitCountButton(true);
+      await this.updateVersionButtons();
+      await this.updateCompareUrl();
     }
   }
 

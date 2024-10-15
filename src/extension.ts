@@ -7,8 +7,8 @@ import { createStatusBarUpdater } from "./utils/statusBarUpdater";
 import { pushAndCheckBuild } from "./commands/pushAndCheckBuild";
 import { Logger } from './utils/logger';
 
-let gitService: GitService;
-let statusBarService: StatusBarService;
+let gitService: GitService | null = null;
+let statusBarService: StatusBarService | null = null;
 let ciService: CIService;
 
 export async function activate(context: vscode.ExtensionContext) {
@@ -17,100 +17,142 @@ export async function activate(context: vscode.ExtensionContext) {
 
   Logger.log("Activating extension...", 'INFO');
 
-  gitService = new GitService(context);
-  await gitService.initialize();
-  context.subscriptions.push(gitService);
+  // Function to initialize GitService and StatusBarService
+  const initializeServices = async () => {
+    const activeEditor = vscode.window.activeTextEditor;
+    if (activeEditor) {
+      const workspaceFolder = vscode.workspace.getWorkspaceFolder(activeEditor.document.uri);
+      if (workspaceFolder) {
+        if (!gitService) {
+          gitService = new GitService(context);
+          const gitInitialized = await gitService.initialize();
+          if (!gitInitialized) {
+            Logger.log("GitService failed to initialize, continuing without it.", 'WARNING');
+            gitService = null; // Ensure gitService is null if initialization fails
+          } else {
+            context.subscriptions.push(gitService);
+            setupStatusBarService(context);
+          }
+        }
+      } else {
+        Logger.log("No active repository detected. Please open a file within a Git repository.", 'WARNING');
+      }
+    }
+  };
 
-  ciService = new CIService();
-  statusBarService = new StatusBarService(
-    [
-      "extension.createMajorTag",
-      "extension.createMinorTag",
-      "extension.createPatchTag",
-      "extension.createInitialTag",
-      "extension.openCompareLink",
-    ],
-    context,
-    gitService,
-    ciService
-  );
+  // Initial attempt to initialize services
+  await initializeServices();
 
-  const statusBarUpdater = createStatusBarUpdater(gitService, statusBarService);
-
-  // Add a listener for active text editor changes
-  vscode.window.onDidChangeActiveTextEditor(() => {
-    statusBarUpdater.debouncedUpdate(false);
+  // Listen for changes in the active text editor
+  vscode.window.onDidChangeActiveTextEditor(async () => {
+    Logger.log("Active editor changed, attempting to initialize services...", 'INFO');
+    await initializeServices();
   });
 
-  // Register commands
-  registerCommands(context, gitService, statusBarService, ciService, statusBarUpdater);
+  // Register commands once
+  registerCommands(context);
 
   // Set up interval to update status bar
   const config = vscode.workspace.getConfiguration("git-tag-release-tracker");
 }
 
-function registerCommands(
-  context: vscode.ExtensionContext,
-  gitService: GitService,
-  statusBarService: StatusBarService,
-  ciService: CIService,
-  statusBarUpdater: { 
-    updateNow: (forceRefresh?: boolean) => Promise<void>,
-    debouncedUpdate: (forceRefresh?: boolean) => void 
+function setupStatusBarService(context: vscode.ExtensionContext) {
+  if (gitService) {
+    ciService = new CIService();
+    statusBarService = new StatusBarService(
+      [
+        "extension.createMajorTag",
+        "extension.createMinorTag",
+        "extension.createPatchTag",
+        "extension.createInitialTag",
+        "extension.openCompareLink",
+      ],
+      context,
+      gitService,
+      ciService
+    );
+
+    const statusBarUpdater = createStatusBarUpdater(gitService, statusBarService);
+
+    // Add a listener for active text editor changes
+    vscode.window.onDidChangeActiveTextEditor(() => {
+      statusBarUpdater.debouncedUpdate(false);
+    });
+  } else {
+    Logger.log("GitService is not initialized, skipping status bar setup.", 'WARNING');
   }
-) {
+}
+
+function registerCommands(context: vscode.ExtensionContext) {
   const refreshAfterPush = async () => {
-    await pushAndCheckBuild(gitService, statusBarService, ciService);
-    await statusBarUpdater.updateNow();
+    if (gitService && statusBarService && ciService) {
+      await pushAndCheckBuild(gitService, statusBarService, ciService);
+      const statusBarUpdater = createStatusBarUpdater(gitService, statusBarService);
+      await statusBarUpdater.updateNow();
+    }
   };
 
   const commands = {
     'extension.createMajorTag': async () => {
-      const defaultBranch = await gitService.getDefaultBranch();
-      if (defaultBranch) {
-        return createTag("major", gitService, statusBarService, defaultBranch, ciService);
+      if (gitService && statusBarService && ciService) {
+        const defaultBranch = await gitService.getDefaultBranch();
+        if (defaultBranch) {
+          return createTag("major", gitService, statusBarService, defaultBranch, ciService);
+        }
       }
     },
     'extension.createMinorTag': async () => {
-      const defaultBranch = await gitService.getDefaultBranch();
-      if (defaultBranch) {
-        return createTag("minor", gitService, statusBarService, defaultBranch, ciService);
+      if (gitService && statusBarService && ciService) {
+        const defaultBranch = await gitService.getDefaultBranch();
+        if (defaultBranch) {
+          return createTag("minor", gitService, statusBarService, defaultBranch, ciService);
+        }
       }
     },
     'extension.createPatchTag': async () => {
-      const defaultBranch = await gitService.getDefaultBranch();
-      if (defaultBranch) {
-        return createTag("patch", gitService, statusBarService, defaultBranch, ciService);
+      if (gitService && statusBarService && ciService) {
+        const defaultBranch = await gitService.getDefaultBranch();
+        if (defaultBranch) {
+          return createTag("patch", gitService, statusBarService, defaultBranch, ciService);
+        }
       }
     },
     'extension.createInitialTag': async () => {
-      const defaultBranch = await gitService.getDefaultBranch();
-      if (defaultBranch) {
-      return createTag("initial", gitService, statusBarService, defaultBranch, ciService);
+      if (gitService && statusBarService && ciService) {
+        const defaultBranch = await gitService.getDefaultBranch();
+        if (defaultBranch) {
+          return createTag("initial", gitService, statusBarService, defaultBranch, ciService);
+        }
       }
     },
     'extension.openCompareLink': () => {
-      const url = statusBarService.getCompareUrl();
-      if (url) {
-        vscode.env.openExternal(vscode.Uri.parse(url));
-      } else {
-        vscode.window.showErrorMessage('No compare link available.');
+      if (statusBarService) {
+        const url = statusBarService.getCompareUrl();
+        if (url) {
+          vscode.env.openExternal(vscode.Uri.parse(url));
+        } else {
+          vscode.window.showErrorMessage('No compare link available.');
+        }
       }
     },
     'extension.openTagBuildStatus': () => {
-      const url = statusBarService.getTagBuildStatusUrl();
-      if (url) {
-        vscode.env.openExternal(vscode.Uri.parse(url));
-      } else {
-        vscode.window.showErrorMessage('No tag build status URL available.');
+      if (statusBarService) {
+        const url = statusBarService.getTagBuildStatusUrl();
+        if (url) {
+          vscode.env.openExternal(vscode.Uri.parse(url));
+        } else {
+          vscode.window.showErrorMessage('No tag build status URL available.');
+        }
       }
     },
     'extension.openBranchBuildStatus': () => {
-      const url = statusBarService.getBranchBuildStatusUrl();
-      if (url) {
-        vscode.env.openExternal(vscode.Uri.parse(url));
-      } else {
-        vscode.window.showErrorMessage('No branch build status URL available.');
+      if (statusBarService) {
+        const url = statusBarService.getBranchBuildStatusUrl();
+        if (url) {
+          vscode.env.openExternal(vscode.Uri.parse(url));
+        } else {
+          vscode.window.showErrorMessage('No branch build status URL available.');
+        }
       }
     },
     'extension.pushAndCheckBuild': refreshAfterPush,
@@ -126,6 +168,7 @@ function registerCommands(
 
   context.subscriptions.push(showLogsCommand);
 }
+
 export function deactivate() {
   if (gitService) {
     gitService.dispose();

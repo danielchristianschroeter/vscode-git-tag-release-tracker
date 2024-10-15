@@ -3,7 +3,6 @@ import * as sinon from 'sinon';
 import { CIService } from '../../services/ciService';
 import axios from 'axios';
 import { setupTestEnvironment, teardownTestEnvironment } from './testSetup';
-import * as vscode from 'vscode';
 import { Logger } from '../../utils/logger';
 
 suite('CIService Test Suite', () => {

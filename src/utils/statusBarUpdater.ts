@@ -30,19 +30,6 @@ export async function updateStatusBar(
       Logger.log(`Repository changed to: ${currentRepo}. Forcing refresh.`, 'INFO');
     }
 
-    const [ciType, ownerAndRepo, currentBranch] = await Promise.all([
-      gitService.detectCIType(),
-      gitService.getOwnerAndRepo(),
-      gitService.getCurrentBranch()
-    ]);
-
-    Logger.log(`CI Type: ${ciType}, Owner/Repo: ${ownerAndRepo ? `${ownerAndRepo.owner}/${ownerAndRepo.repo}` : 'undefined'}, Current Branch: ${currentBranch}`, 'INFO');
-
-    if (!ownerAndRepo || !ciType || !currentBranch) {
-      Logger.log("Missing owner/repo, CI type, or current branch, skipping status bar update", 'WARNING');
-      return;
-    }
-
     // Update everything in the status bar
     await statusBarService.updateEverything(forceRefresh);
     Logger.log("Status bar updated successfully", 'INFO');

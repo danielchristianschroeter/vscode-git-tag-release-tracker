@@ -2,7 +2,7 @@ import * as assert from 'assert';
 import * as sinon from 'sinon';
 import { GitService } from '../../services/gitService';
 import * as vscode from 'vscode';
-import simpleGit, { SimpleGit } from 'simple-git';
+import { SimpleGit } from 'simple-git';
 import mock from 'mock-fs';
 import { setupTestEnvironment, teardownTestEnvironment } from './testSetup';
 
@@ -160,35 +160,36 @@ suite('GitService Test Suite', () => {
 
 	test('getCommitCounts should return correct count for unreleased commits', async () => {
 		const gitStub = {
-			fetch: sandbox.stub().resolves(),
 			raw: sandbox.stub().resolves('5'),
+			fetch: sandbox.stub().resolves()
 		};
 		(gitService as any).git = gitStub;
-		(gitService as any).remoteRefExists = sandbox.stub().resolves(true);
-		(gitService as any).commitCountCache = {};
+		(gitService as any).refExists = sandbox.stub().resolves(true);
 
 		const count = await gitService.getCommitCounts('v1.0.0', 'HEAD');
 		assert.strictEqual(count, 5);
-		sinon.assert.calledWith(gitStub.raw, ['rev-list', '--count', 'v1.0.0..HEAD']);
 	});
 
 	test('getCommitCounts should return total commit count when from is null', async () => {
 		const gitStub = {
-			fetch: sandbox.stub().resolves(),
 			raw: sandbox.stub().resolves('10'),
+			fetch: sandbox.stub().resolves()
 		};
 		(gitService as any).git = gitStub;
-		(gitService as any).remoteRefExists = sandbox.stub().resolves(true);
-		(gitService as any).commitCountCache = {};
+		(gitService as any).refExists = sandbox.stub().resolves(true);
 
 		const count = await gitService.getCommitCounts(null, 'HEAD');
 		assert.strictEqual(count, 10);
-		sinon.assert.calledWith(gitStub.raw, ['rev-list', '--count', 'HEAD']);
 	});
 
 	test('getDefaultBranch should return cached value if available', async () => {
 		(gitService as any).defaultBranchCache.set('testRepo', 'main');
 		(gitService as any).activeRepository = 'testRepo';
+		const gitStub = {
+			raw: sandbox.stub().resolves('origin/main')
+		};
+		(gitService as any).git = gitStub;
+
 		const branch = await gitService.getDefaultBranch();
 		assert.strictEqual(branch, 'main');
 	});

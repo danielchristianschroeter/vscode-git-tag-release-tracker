@@ -44,10 +44,13 @@ export async function pushAndCheckBuild(
     await pollBuildStatusImmediate(currentBranch, owner, repo, ciType, ciService, statusBarService, false);
 
     // Also update the latest tag status
-    const latestTag = await gitService.fetchAndTags().then(tags => tags?.latest);
-    if (latestTag) {
-      await pollBuildStatusImmediate(latestTag, owner, repo, ciType, ciService, statusBarService, true);
+    const latestTag = await gitService.fetchAndTags();
+    if (latestTag.latest) {
+      await pollBuildStatusImmediate(latestTag.latest, owner, repo, ciType, ciService, statusBarService, true);
     }
+
+    // After successful push and build status check
+    await statusBarService.updateEverything(true);
 
   } catch (error) {
     handleError(error, "Error pushing changes and checking build");

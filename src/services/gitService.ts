@@ -7,7 +7,6 @@ import simpleGit, { SimpleGit } from "simple-git";
 import { debounce } from '../utils/debounce';
 
 export interface TagResult {
-  all: string[];
   latest: string | null;
 }
 
@@ -72,7 +71,11 @@ export class GitService {
             this._onRepoChanged.fire({ oldRepo, newRepo, oldBranch, newBranch: this.currentBranch });
           }
         }
+      } else {
+        Logger.log("No active repository detected. Please open a file within a Git repository.", 'WARNING');
       }
+    } else {
+      Logger.log("No active editor. Please open a file to detect the repository.", 'WARNING');
     }
   }
 
@@ -82,7 +85,7 @@ export class GitService {
     }
 
     if (!this.activeRepository) {
-      Logger.log("No active repository", 'WARNING');
+      Logger.log("No active repository detected during initialization", 'WARNING');
       return false;
     }
 
@@ -102,6 +105,9 @@ export class GitService {
       return true;
     } catch (error) {
       Logger.log(`Failed to initialize Git: ${error instanceof Error ? error.message : String(error)}`, 'ERROR');
+      if (error instanceof Error && error.stack) {
+        Logger.log(`Error stack: ${error.stack}`, 'ERROR');
+      }
       return false;
     }
   }
@@ -128,17 +134,20 @@ export class GitService {
     }
   }
 
-  public async fetchAndTags(forceRefresh: boolean = false): Promise<TagResult | null> {
+  public async fetchAndTags(forceRefresh: boolean = false): Promise<TagResult> {
     const currentRepo = await this.getCurrentRepo();
+    const currentBranch = await this.getCurrentBranch();
     
-    if (currentRepo !== this.lastTagFetchRepo) {
+    if (currentRepo !== this.lastTagFetchRepo || currentBranch !== this.lastBranch) {
       this.lastTagFetchRepo = currentRepo;
-      forceRefresh = true; // Force refresh when repo changes
+      this.lastBranch = currentBranch;
+      forceRefresh = true; // Force refresh when repo or branch changes
+      this.clearTagCache();
     }
 
     const now = Date.now();
     if (!forceRefresh && this.tagCache.tags && now - this.tagCache.timestamp < this.tagCacheDuration) {
-      Logger.log('Returning cached tags', 'INFO');
+      Logger.log('Returning cached latest tag', 'INFO');
       return this.tagCache.tags;
     }
 
@@ -147,71 +156,70 @@ export class GitService {
         throw new Error("Git is not initialized");
       }
 
-      Logger.log('Fetching last 2 tags from remote...', 'INFO');
+      Logger.log('Fetching latest tag from remote...', 'INFO');
       await this.git.fetch(['--tags', '--prune', '--prune-tags']);
 
-      const recentTags = await this.git.raw(['for-each-ref', '--sort=-creatordate', '--format=%(objectname)', '--count=2', 'refs/tags']);
-      const tagList = recentTags.split('\n').filter(Boolean);
-      const tags = await Promise.all(tagList.map(hash => this.git!.raw(['describe', '--tags', '--abbrev=0', hash]).catch(() => null)));
+      // Try to get the latest tag
+      let latestTag: string | null = null;
+      try {
+        latestTag = await this.git.raw(['describe', '--tags', '--abbrev=0']);
+        latestTag = latestTag.trim();
+      } catch (error) {
+        // If no tags are found, this command will throw an error
+        Logger.log('No tags found in the repository', 'INFO');
+      }
 
-      const result: TagResult = {
-        all: tags.filter(Boolean).map(tag => tag!.trim()),
-        latest: tags[0]?.trim() || null
-      };
+      const result: TagResult = { latest: latestTag };
 
       this.tagCache = { tags: result, timestamp: now };
-      Logger.log(`Tags fetched and cached: ${JSON.stringify(result)}`, 'INFO');
+      Logger.log(`Latest tag fetched and cached: ${JSON.stringify(result)}`, 'INFO');
       return result;
     } catch (error) {
       Logger.log(`Error fetching tags: ${error instanceof Error ? error.message : String(error)}`, 'ERROR');
-      return null;
+      return { latest: null };
     }
   }
 
-  public async getCommitCounts(from: string | null, to: string): Promise<number> {
+  public async getCommitCounts(from: string | null, to: string, forceRefresh: boolean = false): Promise<number> {
+    const cacheKey = `${from}-${to}`;
+    const now = Date.now();
+
+    // Check cache first, unless forceRefresh is true
+    if (!forceRefresh && this.commitCountCache[cacheKey] && now - this.commitCountCache[cacheKey].timestamp < this.commitCountCacheDuration) {
+      Logger.log(`Returning cached commit count for ${from} to ${to}`, 'INFO');
+      return this.commitCountCache[cacheKey].count;
+    }
+
     try {
       if (!this.git) {
         throw new Error("Git is not initialized");
       }
 
-      const cacheKey = `${from}-${to}`;
-      const now = Date.now();
+      // Fetch the latest changes without tags to improve performance
+      await this.git.fetch(['--no-tags']);
 
-      // Fetch the latest changes
-      await this.git.fetch(['--all', '--prune', '--tags']);
-
-      // Check if both 'from' and 'to' branches/refs exist remotely
-      const fromExists = from ? await this.remoteRefExists(from) : true;
-      const toExists = await this.remoteRefExists(to);
+      // Check if both 'from' and 'to' branches/refs exist
+      const [fromExists, toExists] = await Promise.all([
+        from ? this.refExists(from) : Promise.resolve(true),
+        this.refExists(to)
+      ]);
 
       Logger.log(`Checking ref existence - from: ${from} (${fromExists}), to: ${to} (${toExists})`, 'INFO');
 
-      // If either branch doesn't exist remotely, invalidate the cache and return 0
+      // If either branch doesn't exist, return 0
       if (!fromExists || !toExists) {
-        Logger.log(`Remote branch or ref does not exist: ${!fromExists ? from : to}`, 'INFO');
-        delete this.commitCountCache[cacheKey]; // Invalidate the cache
+        Logger.log(`Branch or ref does not exist: ${!fromExists ? from : to}`, 'INFO');
         return 0;
       }
 
-      // Only check cache if both refs exist
-      if (this.commitCountCache[cacheKey] && now - this.commitCountCache[cacheKey].timestamp < this.commitCountCacheDuration) {
-        Logger.log(`Returning cached commit count for ${from} to ${to}`, 'INFO');
-        return this.commitCountCache[cacheKey].count;
-      }
-
-      let result: string;
-      if (from) {
-        result = await this.git.raw(['rev-list', '--count', `${from}..${to}`]);
-      } else {
-        result = await this.git.raw(['rev-list', '--count', `${to}`]);
-      }
-
+      const range = from ? `${from}..${to}` : to;
+      const result = await this.git.raw(['rev-list', '--count', range]);
       const count = parseInt(result.trim(), 10);
-      Logger.log(`Commit count from ${from || 'beginning'} to ${to}: ${count}`, 'INFO');
-      
+
       // Cache the result
       this.commitCountCache[cacheKey] = { count, timestamp: now };
 
+      Logger.log(`Commit count from ${from} to ${to}: ${count}`, 'INFO');
       return count;
     } catch (error) {
       Logger.log(`Error getting commit count: ${error instanceof Error ? error.message : String(error)}`, 'ERROR');
@@ -219,14 +227,11 @@ export class GitService {
     }
   }
 
-  private async remoteRefExists(ref: string): Promise<boolean> {
+  private async refExists(ref: string): Promise<boolean> {
     try {
-      const result = await this.git?.raw(['ls-remote', '--exit-code', '--heads', '--tags', 'origin', ref]);
-      const exists = result !== '';
-      Logger.log(`Checking if ref '${ref}' exists remotely: ${exists}`, 'INFO');
-      return exists;
+      await this.git?.revparse(['--verify', ref]);
+      return true;
     } catch (error) {
-      Logger.log(`Error checking if ref '${ref}' exists remotely: ${error instanceof Error ? error.message : String(error)}`, 'ERROR');
       return false;
     }
   }
@@ -235,8 +240,8 @@ export class GitService {
     const currentRepo = this.activeRepository;
     if (currentRepo !== this.lastRepo) {
       this.lastRepo = currentRepo;
-      this.clearTagCache();
-      Logger.log(`Repository changed to: ${currentRepo}. Tag cache cleared.`, 'INFO');
+      this.clearCaches();
+      Logger.log(`Repository changed to: ${currentRepo}. Caches cleared.`, 'INFO');
     }
     return currentRepo;
   }
@@ -574,7 +579,6 @@ export class GitService {
     this.tagCache = { tags: null, timestamp: 0 };
     this.commitCountCache = {};
     this.lastTagFetchRepo = null;
-    this.lastRepo = null;
     this.lastBranch = null;
   }
 

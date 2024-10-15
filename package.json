@@ -74,10 +74,6 @@
         "title": "Open Tag Build Status"
       },
       {
-        "command": "extension.refreshBranchBuildStatus",
-        "title": "Refresh Branch Build Status"
-      },
-      {
         "command": "extension.createInitialTag",
         "title": "Create Initial Version Tag"
       },
@@ -155,5 +151,8 @@
     "url": "https://github.com/danielchristianschroeter/vscode-git-tag-release-tracker/issues"
   },
   "homepage": "https://github.com/danielchristianschroeter/vscode-git-tag-release-tracker#readme",
-  "pricing": "Free"
+  "pricing": "Free",
+  "sponsor": {
+    "url": "https://github.com/sponsors/danielchristianschroeter"
+  }
 }

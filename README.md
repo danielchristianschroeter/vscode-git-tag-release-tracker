@@ -2,63 +2,44 @@
 
 [![Visual Studio Marketplace](https://img.shields.io/visual-studio-marketplace/v/DanielChristianSchroeter.git-tag-release-tracker?style=flat&label=Visual%20Studio%20Marketplace)](https://marketplace.visualstudio.com/items?itemName=DanielChristianSchroeter.git-tag-release-tracker) [![Visual Studio Marketplace Installs](https://img.shields.io/visual-studio-marketplace/i/DanielChristianSchroeter.git-tag-release-tracker?style=flat&label=Visual%20Studio%20Marketplace%20Installs&logo=visual-studio-code)](https://marketplace.visualstudio.com/items?itemName=DanielChristianSchroeter.git-tag-release-tracker) [![OpenVSX Registry Downloads](https://img.shields.io/open-vsx/dt/DanielChristianSchroeter/git-tag-release-tracker?style=flat&label=OpenVSX%20Downloads)](https://open-vsx.org/extension/DanielChristianSchroeter/git-tag-release-tracker)
 
-The **Git Tag Release Tracker** extension for VS Code simplifies Git tag and release management. Increment semantic versions (Major, Minor, Patch) with a single click in the status bar. Automatically tracks and displays CI/CD build status for your tags and branches.
+The **Git Tag Release Tracker** extension for VS Code simplifies Git tag and release management. Increment semantic versions (Major, Minor, Patch) with a single click in the status bar. Automatically tracks and displays CI/CD build status for your tags and branches for GitHub Actions and GitLab Pipelines.
 
 ## Features
 
-- **Automatic Detection**: Detects Git repository, branch, latest tags, and CI/CD system (GitHub Actions or GitLab Pipelines).
-- **Status Bar Integration**: Shows unmerged and unreleased commits, latest tag version, and CI/CD status.
-- **Tag Management**: Increase major, minor, or patch version tags from the status bar. If existing tags are present, it preserves existing prefixes and suffixes from the latest tag.
-- **CI/CD Integration**: Displays build status for latest tag and current branch.
+- **Automatic Detection**: Identifies Git repository, branch, latest tags, and CI/CD system (GitHub Actions or GitLab Pipelines).
+- **Status Bar Integration**: Displays unmerged and unreleased commits, latest tag version, and CI/CD status.
+- **Tag Management**: Increment major, minor, or patch version tags while preserving existing prefixes and suffixes.
+- **CI/CD Integration**: Shows build status for the latest tag and current branch.
 - **Compare Commits**: Open a GitHub/GitLab compare link to view changes between tags/branches.
-- **Automatic Updates**: Status bar automatically updates build status on repository and/or branch changes, as well as after any push.
+- **Automatic Updates**: Status bar updates build status on repository/branch changes and after any push.
 
 **Note**: This extension only supports [Semantic Versioning](https://semver.org/) for tag management. Make sure your project follows the SemVer specification for optimal use of this extension.
 
-### Default Branch vs Feature Branch Status Bar
+### Default vs Feature Branch Status Bar
 
-When you're on the default branch (e.g., main or master):
+- **Default Branch**:
 
-- You'll see buttons for creating new version tags (major, minor, patch) if existing tags exist.
-- The status bar shows the number of unreleased commits since the last tag.
-- Both the latest tag build status and the current branch build status are displayed.
+  - Buttons for creating new version tags (major, minor, patch) if tags exist.
+  - Shows unreleased commits since the last tag.
+  - Displays both latest tag and current branch build status.
 
-When you're on any other (feature/topic) branch:
-
-- Version tag creation buttons are hidden.
-- The status bar shows both unreleased commits on the default branch and unmerged commits on your current branch.
-- The current branch build status is displayed.
+- **Feature Branch**:
+  - Hides version tag creation buttons.
+  - Shows unreleased commits on the default branch and unmerged commits on the current branch.
+  - Displays current branch build status.
 
 ### Screenshots
 
 <p align="center">
-<img src="images/default-branch-with-unreleased-commits-and-increase--minor-version.png" alt="Default Branch with Unreleased Commits" width=95%>
+<img src="images/branch-build-status.png" alt="Branch Build Status" width=95%>
+<br/>
+<em>Show your latest Github or GitLab branch build status</em>
+</p>
+
+<p align="center">
+<img src="images/default-branch-with-unreleased-commits-and-increase-minor-version.png" alt="Default Branch with Unreleased Commits" width=95%>
 <br/>
 <em>Default branch with unreleased commits and option to increase minor version</em>
-</p>
-
-<p align="center">
-<img src="images/default-branch-creating-initial-tag.png" alt="Creating Initial Tag" width=95%>
-<br/>
-<em>Creating an initial version tag on the default branch</em>
-</p>
-
-<p align="center">
-<img src="images/default-branch-creating-minor-tag.png" alt="Creating Minor Tag" width=95%>
-<br/>
-<em>Creating a minor tag on the default branch</em>
-</p>
-
-<p align="center">
-<img src="images/default-branch-show-tag-build-status-result-notification.png" alt="Tag Build Status Result Notification" width=95%>
-<br/>
-<em>Notification showing the result of a tag build status check</em>
-</p>
-
-<p align="center">
-<img src="images/default-branch-show-tag-build-status.png" alt="Tag Build Status" width=95%>
-<br/>
-<em>Status bar showing tag build status on the default branch</em>
 </p>
 
 <p align="center">
@@ -80,17 +61,13 @@ When you're on any other (feature/topic) branch:
 
 ## Extension Settings
 
-This extension contributes the following setting:
-
-- `gitTagReleaseTracker.ciProviders`: Configuration for different CI providers (GitHub and GitLab).
+- `gitTagReleaseTracker.ciProviders`: Configure CI providers (GitHub and GitLab).
 
 ## Setting up CI/CD Status Checks
 
-1. Generate Personal Access Tokens as per the requirements mentioned above.
-
-2. Open your VS Code settings (File > Preferences > Settings).
-
-3. Search for "Git Tag Release Tracker" and add the following configuration to your `settings.json`:
+1. Generate Personal Access Tokens as per the requirements.
+2. Open VS Code settings (File > Preferences > Settings).
+3. Add the following to `settings.json`:
 
    ```json
    "gitTagReleaseTracker.ciProviders": {
@@ -105,45 +82,33 @@ This extension contributes the following setting:
    }
    ```
 
-   Replace the token placeholders with your actual tokens.
+   Replace token placeholders with actual tokens.
 
-4. For self-hosted GitLab instances, update the `apiUrl` accordingly.
-
+4. Update `apiUrl` for self-hosted GitLab instances.
 5. Save your settings.
 
-The extension will automatically detect and use the appropriate CI system for each repository.
-
-Note: You can configure both GitHub and GitLab providers simultaneously if you work with both platforms.
+The extension will detect and use the appropriate CI system for each repository.
 
 ## Commands
 
-This extension contributes the following commands:
-
-- `Git Tag Release Tracker: Refresh Branch Build Status`: Manually force refresh the build status for the current branch.
 - `Git Tag Release Tracker: Show Logs`: Open the extension's log output channel.
 
-You can access these commands through the Command Palette (Ctrl+Shift+P or Cmd+Shift+P on macOS) by typing "Git Tag Release Tracker".
+Access these commands through the Command Palette (Ctrl+Shift+P or Cmd+Shift+P on macOS).
 
 ## Semantic Versioning
 
-This extension adheres to Semantic Versioning 2.0.0 as defined at [semver.org](https://semver.org/). It's important to understand the principles of SemVer when using this extension:
+This extension adheres to [Semantic Versioning 2.0.0](https://semver.org/). Understand the principles of SemVer:
 
 1. MAJOR version for incompatible API changes,
-2. MINOR version for adding functionality in a backwards compatible manner, and
+2. MINOR version for adding functionality in a backwards compatible manner,
 3. PATCH version for backwards compatible bug fixes.
-
-Additional labels for pre-release and build metadata are available as extensions to the MAJOR.MINOR.PATCH format.
-
-For more details on Semantic Versioning, please refer to the [official SemVer specification](https://semver.org/).
 
 ## Troubleshooting
 
-If you encounter any issues:
-
-1. Check the extension logs by running the "Git Tag Release Tracker: Show Logs" command.
-2. Ensure your CI tokens are correctly configured in the extension settings.
-3. Verify that your repository has a valid remote URL and is properly connected to GitHub or GitLab.
+- Check extension logs via "Git Tag Release Tracker: Show Logs".
+- Ensure CI tokens are correctly configured.
+- Verify repository has a valid remote URL and is connected to GitHub or GitLab.
 
 ## Feedback and Contributions
 
-Your feedback and contributions are welcome! Please submit issues or pull requests on the [GitHub repository](https://github.com/danielchristianschroeter/vscode-git-tag-release-tracker).
+Feedback and contributions are welcome! Submit issues or pull requests on the [GitHub repository](https://github.com/danielchristianschroeter/vscode-git-tag-release-tracker).

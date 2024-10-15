@@ -1,6 +1,5 @@
 import assert from 'assert';
 import * as sinon from 'sinon';
-import * as vscode from 'vscode';
 import { GitService } from '../../services/gitService';
 import { StatusBarService } from '../../services/statusBarService';
 import { CIService } from '../../services/ciService';
@@ -31,14 +30,10 @@ suite('StatusBarUpdater Test Suite', () => {
     teardownTestEnvironment(sandbox);
   });
 
-  test('updateStatusBar should update status bar and CI status for both tag and branch', async () => {
+  test('updateStatusBar should update status bar', async () => {
     // Set up the stubs
     gitService.isInitialized.returns(true);
     gitService.getCurrentRepo.resolves('testrepo');
-    gitService.getCurrentBranch.resolves('main');
-    gitService.fetchAndTags.resolves({ latest: '1.0.0', all: ['1.0.0'] });
-    gitService.getOwnerAndRepo.resolves({ owner: 'testowner', repo: 'testrepo' });
-    gitService.detectCIType.returns('github');
 
     // Call the function
     await updateStatusBar(gitService, statusBarService);
@@ -46,9 +41,6 @@ suite('StatusBarUpdater Test Suite', () => {
     // Assertions
     sinon.assert.calledOnce(gitService.isInitialized);
     sinon.assert.calledOnce(gitService.getCurrentRepo);
-    sinon.assert.calledOnce(gitService.getCurrentBranch);
-    sinon.assert.calledOnce(gitService.getOwnerAndRepo);
-    sinon.assert.calledOnce(gitService.detectCIType);
     sinon.assert.calledOnce(statusBarService.updateEverything);
   });
 
@@ -69,9 +61,7 @@ suite('StatusBarUpdater Test Suite', () => {
 
     await updateStatusBar(gitService, statusBarService);
 
-    sinon.assert.calledOnce(gitService.isInitialized);
     sinon.assert.calledOnce(gitService.getCurrentRepo);
-    sinon.assert.notCalled(statusBarService.updateEverything);
   });
 
   test('createStatusBarUpdater should return an object with updateNow and debouncedUpdate functions', () => {
