@@ -1,4 +1,3 @@
-import * as vscode from "vscode";
 import { GitService } from "../services/gitService";
 import { StatusBarService } from "../services/statusBarService";
 import { handleError } from "./errorHandler";
