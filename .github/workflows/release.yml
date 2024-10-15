@@ -32,10 +32,8 @@ jobs:
         run: npm ci
 
       - name: Update package.json version
-        uses: restackio/update-json-file-action@2.1
-        with:
-          file: package.json
-          fields: '{"version": "${{ steps.version_step.outputs.version }}"}'
+        run: |
+          npm version --no-git-tag-version ${{ steps.version_step.outputs.version }}
 
       - name: Package VSCode extension
         run: |
