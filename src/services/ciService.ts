@@ -361,4 +361,9 @@ export class CIService {
   public isInProgressStatus(status: string): boolean {
     return this.inProgressStatuses.includes(status);
   }
+
+  public reloadProviders() {
+    this.providers = this.loadProviders();
+    Logger.log('CI Providers reloaded', 'INFO');
+  }
 }

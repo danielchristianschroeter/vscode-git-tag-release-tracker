@@ -40,6 +40,16 @@ export async function activate(context: vscode.ExtensionContext) {
     }
   };
 
+  // Add a listener for configuration changes
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeConfiguration(async (event) => {
+      if (event.affectsConfiguration('gitTagReleaseTracker.ciProviders')) {
+        Logger.log("CI Provider configuration changed, validating...", 'INFO');
+        await validateCIConfiguration();
+      }
+    })
+  );
+
   // Initial attempt to initialize services
   await initializeServices();
 
@@ -172,5 +182,29 @@ function registerCommands(context: vscode.ExtensionContext) {
 export function deactivate() {
   if (gitService) {
     gitService.dispose();
+  }
+}
+
+async function validateCIConfiguration() {
+  // Check if gitService is initialized
+  if (!gitService) {
+    Logger.log("GitService is not initialized, skipping CI configuration validation.", 'WARNING');
+    return; // Exit if gitService is not initialized
+  }
+
+  // Reload CI providers to ensure we have the latest configuration
+  if (ciService) {
+    ciService.reloadProviders();
+  }
+
+  const ciType = await gitService.detectCIType();
+  const config = vscode.workspace.getConfiguration('gitTagReleaseTracker');
+  const ciProviders = config.get<{ [key: string]: { token: string, apiUrl: string } }>('ciProviders', {});
+
+  if (ciType && (!ciProviders[ciType]?.token || !ciProviders[ciType]?.apiUrl)) {
+    Logger.log(`CI Provider ${ciType} is not properly configured.`, 'WARNING');
+    vscode.window.showErrorMessage(`CI Provider ${ciType} is not properly configured.`);
+  } else {
+    Logger.log(`CI Provider ${ciType} is properly configured.`, 'INFO');
   }
 }

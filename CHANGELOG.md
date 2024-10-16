@@ -1,6 +1,17 @@
 # Changelog
 
-## [2.4.0] - Current Changes
+## [2.4.1] - Current Changes
+
+### Added
+
+- Implemented immediate validation of CI provider configuration upon changes to settings, ensuring users receive timely feedback on configuration issues.
+
+### Fixed
+
+- Resolved issues with CI provider configuration not being recognized until the extension was restarted.
+- Improved error handling for invalid CI provider configurations, providing clearer messages to users.
+
+## [2.4.0]
 
 ### Added
 
