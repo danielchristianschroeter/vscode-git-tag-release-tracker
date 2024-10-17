@@ -7,7 +7,8 @@ import {CIService} from "../../services/ciService";
 import {setupTestEnvironment, teardownTestEnvironment} from "./testSetup";
 import {Logger} from "../../utils/logger";
 
-suite("StatusBarService Test Suite", () => {
+suite("StatusBarService Test Suite", function () {
+  this.timeout(11000); // Extend the timeout to 11 seconds
   let sandbox: sinon.SinonSandbox;
   let testEnv: ReturnType<typeof setupTestEnvironment>;
   let statusBarService: StatusBarService;
@@ -15,6 +16,7 @@ suite("StatusBarService Test Suite", () => {
   let ciServiceStub: sinon.SinonStubbedInstance<CIService>;
   let contextStub: sinon.SinonStubbedInstance<vscode.ExtensionContext>;
   let loggerSpy: sinon.SinonSpy;
+  let gitPushEmitter: vscode.EventEmitter<void>;
 
   setup(() => {
     testEnv = setupTestEnvironment();
@@ -28,7 +30,7 @@ suite("StatusBarService Test Suite", () => {
       newBranch: string | null;
     }>();
     const branchChangedEmitter = new vscode.EventEmitter<{oldBranch: string | null; newBranch: string | null}>();
-    const gitPushEmitter = new vscode.EventEmitter<void>();
+    gitPushEmitter = new vscode.EventEmitter<void>();
 
     // Create the GitService stub
     gitServiceStub = sandbox.createStubInstance(GitService);
@@ -285,7 +287,7 @@ suite("StatusBarService Test Suite", () => {
     // Set up the stubs for the unmerged commits scenario
     gitServiceStub.getCurrentBranch.resolves("feature/new-feature");
     gitServiceStub.getDefaultBranch.resolves("main");
-    gitServiceStub.getOwnerAndRepo.resolves({ owner: "testowner", repo: "testrepo" });
+    gitServiceStub.getOwnerAndRepo.resolves({owner: "testowner", repo: "testrepo"});
 
     // Simulate unmerged commits
     gitServiceStub.getCommitCounts.withArgs("main", "feature/new-feature", false).resolves(2); // Unmerged commits
@@ -293,14 +295,14 @@ suite("StatusBarService Test Suite", () => {
 
     // Initialize the buttons array correctly
     (statusBarService as any).buttons = Array(5)
-        .fill({})
-        .map(() => ({
-            text: "",
-            tooltip: "",
-            command: "",
-            show: sinon.stub(),
-            hide: sinon.stub()
-        }));
+      .fill({})
+      .map(() => ({
+        text: "",
+        tooltip: "",
+        command: "",
+        show: sinon.stub(),
+        hide: sinon.stub()
+      }));
 
     // Call updateCachedData to ensure cachedData is populated
     await (statusBarService as any).updateCachedData();
@@ -310,17 +312,55 @@ suite("StatusBarService Test Suite", () => {
 
     // Assertions
     const buttons = (statusBarService as any).buttons; // Ensure buttons are accessed correctly
-    console.log("Tooltip:", buttons[4].tooltip); // Log the actual tooltip for debugging
-    console.log("Text:", buttons[4].text); // Log the actual text for debugging
+    //console.log("Tooltip:", buttons[4].tooltip); // Log the actual tooltip for debugging
+    //console.log("Text:", buttons[4].text); // Log the actual text for debugging
 
     // Check the cached data values
-    console.log("Cached Data:", (statusBarService as any).cachedData);
+    //console.log("Cached Data:", (statusBarService as any).cachedData);
 
     assert.strictEqual(
-        buttons[4].tooltip,
-        "2 unmerged commits in testowner/testrepo/feature/new-feature compared to main\nClick to open compare view"
+      buttons[4].tooltip,
+      "2 unmerged commits in testowner/testrepo/feature/new-feature compared to main\nClick to open compare view"
     );
     assert.strictEqual(buttons[4].text, "2 unmerged commits");
     assert.ok(buttons[4].show.called, "Commit count button should be shown");
+  });
+
+  test("should refresh build status after a commit is pushed", async () => {
+    // Set up the stubs
+    gitServiceStub.getCurrentBranch.resolves("main");
+    gitServiceStub.getOwnerAndRepo.resolves({owner: "testowner", repo: "testrepo"});
+    gitServiceStub.detectCIType.returns("github");
+    gitServiceStub.getDefaultBranch.resolves("main");
+
+    // Mock the buttons array
+    const mockButtons = Array(5)
+      .fill({})
+      .map(() => ({
+        text: "",
+        tooltip: "",
+        command: "",
+        show: sinon.stub(),
+        hide: sinon.stub()
+      }));
+    (statusBarService as any).buttons = mockButtons;
+
+    // Spy on the updateBuildStatus method
+    const updateBuildStatusSpy = sinon.spy(statusBarService as any, "updateBuildStatus");
+
+    // Call the function to update the branch build status
+    await statusBarService.updateEverything(false);
+
+    // Fire the git push event
+    gitPushEmitter.fire();
+
+    // Wait for the asynchronous operations to complete
+    await new Promise(resolve => setTimeout(resolve, 6000));
+
+    // Assertions
+    assert.ok(
+      updateBuildStatusSpy.calledWith("main", "testowner", "testrepo", "github", false),
+      "updateBuildStatus should be called after a commit is pushed with the correct arguments"
+    );
   });
 });

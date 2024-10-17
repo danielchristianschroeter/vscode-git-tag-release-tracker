@@ -1,23 +1,23 @@
-import * as vscode from 'vscode';
+import * as vscode from "vscode";
 
 export class Logger {
   private static outputChannel: vscode.OutputChannel;
 
   static initialize(context: vscode.ExtensionContext) {
-    this.outputChannel = vscode.window.createOutputChannel('Git Tag Release Tracker', 'log');
+    this.outputChannel = vscode.window.createOutputChannel("Git Tag Release Tracker", "log");
     context.subscriptions.push(this.outputChannel);
   }
 
-  static log(message: string, level: 'DEBUG' | 'INFO' | 'WARNING' | 'ERROR' = 'INFO') {
+  static log(message: string, level: "DEBUG" | "INFO" | "WARNING" | "ERROR" = "INFO") {
     if (!this.outputChannel) {
-      console.warn('Logger not initialized');
+      console.warn("Logger not initialized");
       return;
     }
 
     const timestamp = new Date().toISOString();
     this.outputChannel.appendLine(`[${timestamp}] [${level}] ${message}`);
 
-    if (level === 'ERROR') {
+    if (level === "ERROR") {
       vscode.window.showErrorMessage(message);
     }
   }

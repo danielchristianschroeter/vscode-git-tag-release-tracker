@@ -86,7 +86,7 @@ export async function pollBuildStatusImmediate(
       }
 
       if (status === 'no_runs' && attempt === 0) {
-        vscode.window.showInformationMessage(`Waiting for CI to start for ${isTag ? 'tag' : 'branch'} ${ref} (${owner}/${repo})`);
+        vscode.window.showInformationMessage(`Waiting for ${ciType} to start build for ${isTag ? 'tag' : 'branch'} ${ref} (${owner}/${repo})`);
       }
 
       const interval = inProgressStatuses.includes(status) || status === 'no_runs'

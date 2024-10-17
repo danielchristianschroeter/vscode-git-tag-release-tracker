@@ -1,6 +1,12 @@
 # Changelog
 
-## [2.4.1] - Current Changes
+## [2.4.2]
+
+### Fixed
+
+- Enhanced handling for directories that are not Git repositories, eliminating unnecessary error notifications.
+
+## [2.4.1]
 
 ### Added
 
