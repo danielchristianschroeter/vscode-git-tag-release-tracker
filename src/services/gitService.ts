@@ -618,6 +618,7 @@ export class GitService {
 
   private clearTagCache() {
     this.tagCache = {tags: null, timestamp: 0};
+    Logger.log("Tag cache cleared", "INFO");
   }
 
   private clearCaches() {
@@ -629,6 +630,7 @@ export class GitService {
     this.commitCountCache = {};
     this.lastTagFetchRepo = null;
     this.lastBranch = null;
+    Logger.log("All caches cleared", "INFO");
   }
 
   private async watchGitChanges() {

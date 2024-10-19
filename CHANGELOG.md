@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.4.3]
+
+### Fixed
+
+- Corrected the handling of GitHub workflow statuses to ensure alignment with GitHub's allowed status values, improving the accuracy of status displays in the status bar.
+- Resolved an issue where the latest tags were not being fetched correctly after switching branches, ensuring that the status bar reflects the most recent tag information.
+
 ## [2.4.2]
 
 ### Fixed

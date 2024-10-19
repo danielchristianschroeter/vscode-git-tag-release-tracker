@@ -50,7 +50,7 @@ export class StatusBarService {
     this.gitService.onBranchChanged(this.handleBranchChange.bind(this));
     vscode.window.onDidChangeActiveTextEditor(() => this.handleActiveEditorChange());
     this.debouncedUpdateEverything = debounce(this.updateEverything.bind(this), 5000);
-    this.debouncedRefreshAfterPush = debounce(this.refreshAfterPush.bind(this), 1000);
+    this.debouncedRefreshAfterPush = debounce(this.refreshAfterPush.bind(this), 5000);
     this.gitService.onGitPush(() => this.debouncedRefreshAfterPush());
     vscode.window.onDidChangeActiveTextEditor(() => this.debouncedHandleActiveEditorChange());
 
@@ -385,7 +385,7 @@ export class StatusBarService {
       this.clearCache();
     }
 
-    await this.updateCachedData();
+    await this.updateCachedData(forceRefresh);
 
     // Check if there are actual changes in the data
     if (!forceRefresh && JSON.stringify(previousData) === JSON.stringify(this.cachedData)) {
@@ -417,12 +417,12 @@ export class StatusBarService {
     }
   }
 
-  private async updateCachedData(): Promise<void> {
+  private async updateCachedData(forceRefresh: boolean = false): Promise<void> {
     const [currentBranch, defaultBranch, ownerAndRepo, latestTag] = await Promise.all([
       this.gitService.getCurrentBranch(),
       this.gitService.getDefaultBranch(),
       this.gitService.getOwnerAndRepo(),
-      this.gitService.fetchAndTags()
+      this.gitService.fetchAndTags(forceRefresh)
     ]);
 
     this.cachedData.currentBranch = currentBranch;

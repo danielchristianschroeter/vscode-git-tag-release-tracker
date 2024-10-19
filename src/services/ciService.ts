@@ -151,22 +151,19 @@ export class CIService {
       let status = latestRun.status;
       const conclusion = latestRun.conclusion;
 
+      // Ensure the status is one of the allowed values
       if (status === "completed") {
-        status = conclusion === "success" ? "success" : "failure";
+        status = conclusion || "completed"; // Use conclusion if available
       }
 
-      const finalStatus = status === "in_progress" ? "pending" : status;
-
       Logger.log(
-        `GitHub CI returning status: ${status}, conclusion: ${conclusion}, final status: ${finalStatus} for ${
-          isTag ? "tag" : "branch"
-        } ${ref}`,
+        `GitHub CI returning status: ${status}, conclusion: ${conclusion} for ${isTag ? "tag" : "branch"} ${ref}`,
         "INFO"
       );
       return {
-        status: finalStatus,
+        status: status,
         url: latestRun.html_url,
-        message: `GitHub CI returning status: ${finalStatus} for ${isTag ? "tag" : "branch"} ${ref}`,
+        message: `GitHub CI returning status: ${status} for ${isTag ? "tag" : "branch"} ${ref}`,
         response: {headers: runsResponse.headers}
       };
     } catch (error) {
