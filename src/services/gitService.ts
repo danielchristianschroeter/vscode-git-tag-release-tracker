@@ -71,10 +71,11 @@ export class GitService {
       return;
     }
 
-    const newRepo = workspaceFolder.uri.fsPath;
-    if (!fs.existsSync(path.join(newRepo, ".git"))) {
+    const gitRoot = this.findGitRoot(filePath);
+
+    if (!gitRoot) {
       if (this.activeRepository !== null) {
-        Logger.log(`The directory ${newRepo} is not a Git repository. Clearing status bar.`, "WARNING");
+        Logger.log(`No Git repository found in ${filePath} or its parent directories. Clearing status bar.`, "WARNING");
         this._onRepoChanged.fire({
           oldRepo: this.activeRepository,
           newRepo: null,
@@ -84,12 +85,12 @@ export class GitService {
         this.activeRepository = null;
         this.git = null; // Clear the git instance
       }
-      return; // Skip if not a Git repository
+      return; // Skip if no Git repository found
     }
 
-    if (newRepo !== this.activeRepository) {
+    if (gitRoot !== this.activeRepository) {
       const oldRepo = this.activeRepository;
-      this.activeRepository = newRepo;
+      this.activeRepository = gitRoot;
       this.git = simpleGit(this.activeRepository);
       this.initialized = false;
       await this.initialize();
@@ -101,7 +102,7 @@ export class GitService {
       // Emit repository change event
       const oldBranch = this.currentBranch;
       this.currentBranch = await this.getCurrentBranchInternal();
-      this._onRepoChanged.fire({oldRepo, newRepo, oldBranch, newBranch: this.currentBranch});
+      this._onRepoChanged.fire({oldRepo, newRepo: gitRoot, oldBranch, newBranch: this.currentBranch});
     }
   }
 
@@ -271,9 +272,21 @@ export class GitService {
     }
   }
 
+  private findGitRoot(startPath: string): string | null {
+    let currentPath = startPath;
+    while (currentPath !== path.parse(currentPath).root) {
+      const gitPath = path.join(currentPath, ".git");
+      if (fs.existsSync(gitPath)) {
+        return currentPath;
+      }
+      currentPath = path.dirname(currentPath);
+    }
+    return null;
+  }
+
   public async getCurrentRepo(): Promise<string | null> {
     const currentRepo = this.activeRepository;
-    if (!currentRepo || !fs.existsSync(path.join(currentRepo, ".git"))) {
+    if (!currentRepo || !this.findGitRoot(currentRepo)) {
       Logger.log("No valid Git repository detected. Clearing caches.", "WARNING");
       this.clearCaches();
       this.activeRepository = null;

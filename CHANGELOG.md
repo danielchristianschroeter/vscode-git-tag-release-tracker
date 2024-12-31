@@ -1,5 +1,11 @@
 # Changelog
 
+## [2.4.4]
+
+## Fixed
+
+- Refactor Git repository detection logic to improve accuracy and clarity in status updates, adding a method to find the Git root directory.
+
 ## [2.4.3]
 
 ### Fixed
