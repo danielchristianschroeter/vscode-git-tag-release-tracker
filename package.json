@@ -123,7 +123,7 @@
   "devDependencies": {
     "@types/mocha": "^10.0.9",
     "@types/mock-fs": "^4.13.4",
-    "@types/node": "22.7.6",
+    "@types/node": "22.10.5",
     "@types/semver": "^7.5.8",
     "@types/sinon": "^17.0.3",
     "@types/vscode": "^1.93.1",
