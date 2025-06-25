@@ -524,8 +524,8 @@ export class GitService {
       const match = result.match(/HEAD branch: (.+)/);
       if (match) {
         const defaultBranch = match[1].trim();
-        this.defaultBranchCache.set(currentRepo, defaultBranch);
-        return defaultBranch;
+        this.defaultBranchCache.set(currentRepo, `origin/${defaultBranch}`);
+        return `origin/${defaultBranch}`;
       }
 
       // If that fails, fall back to checking common default branch names
@@ -533,8 +533,8 @@ export class GitService {
       for (const branch of commonDefaultBranches) {
         try {
           await this.git.raw(["rev-parse", "--verify", `origin/${branch}`]);
-          this.defaultBranchCache.set(currentRepo, branch);
-          return branch;
+          this.defaultBranchCache.set(currentRepo, `origin/${branch}`);
+          return `origin/${branch}`;
         } catch (error) {
           // Branch doesn't exist, continue to the next one
         }

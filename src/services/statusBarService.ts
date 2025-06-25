@@ -563,13 +563,15 @@ export class StatusBarService {
       const {baseUrl, projectPath} = repoInfo;
 
       if (this.cachedData.currentBranch !== this.cachedData.defaultBranch) {
-        this.compareUrl = `${baseUrl}/${projectPath}/compare/${this.cachedData.defaultBranch}...${this.cachedData.currentBranch}`;
+        const cleanDefaultBranch = this.cachedData.defaultBranch.replace(/^origin\//, "");
+        const cleanCurrentBranch = this.cachedData.currentBranch.replace(/^origin\//, "");
+        this.compareUrl = `${baseUrl}/${projectPath}/compare/${cleanDefaultBranch}...${cleanCurrentBranch}`;
       } else {
         if (this.cachedData.latestTag?.latest) {
-          this.compareUrl = `${baseUrl}/${projectPath}/compare/${this.cachedData.latestTag.latest}...${this.cachedData.currentBranch}`;
+          this.compareUrl = `${baseUrl}/${projectPath}/compare/${this.cachedData.latestTag.latest}...${this.cachedData.defaultBranch}`;
         } else {
           const initialCommit = await this.gitService.getInitialCommit();
-          this.compareUrl = `${baseUrl}/${projectPath}/compare/${initialCommit}...${this.cachedData.currentBranch}`;
+          this.compareUrl = `${baseUrl}/${projectPath}/compare/${initialCommit}...${this.cachedData.defaultBranch}`;
         }
       }
       Logger.log(`Compare URL updated: ${this.compareUrl}`, "INFO");

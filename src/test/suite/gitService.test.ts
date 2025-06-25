@@ -205,12 +205,12 @@ suite("GitService Test Suite", () => {
 
   suite("getDefaultBranch", () => {
     test("should return cached value if available", async () => {
-      (gitService as any).defaultBranchCache.set("testRepo", "main");
+      (gitService as any).defaultBranchCache.set("testRepo", "origin/main");
       (gitService as any).activeRepository = "testRepo";
       sandbox.stub(gitService, "getCurrentRepo").resolves("testRepo");
 
       const branch = await gitService.getDefaultBranch();
-      assert.strictEqual(branch, "main");
+      assert.strictEqual(branch, "origin/main");
     });
 
     test("should fetch and cache default branch if not cached", async () => {
@@ -223,37 +223,40 @@ suite("GitService Test Suite", () => {
       sandbox.stub(gitService, "getCurrentRepo").resolves("testRepo");
 
       const branch = await gitService.getDefaultBranch();
-      assert.strictEqual(branch, "main");
+      assert.strictEqual(branch, "origin/main");
       sinon.assert.calledWith(gitStub.raw, ["remote", "show", "origin"]);
-      assert.strictEqual((gitService as any).defaultBranchCache.get("testRepo"), "main");
+      assert.strictEqual((gitService as any).defaultBranchCache.get("testRepo"), "origin/main");
     });
 
-
-    test("should return null if no default branch is found", async () => {
-        const gitStub = {
-            raw: sandbox.stub().resolves("HEAD branch: ") // Simulate no default branch found
-        };
-        (gitService as any).git = gitStub;
-        (gitService as any).activeRepository = "testRepo";
-
-        const branch = await gitService.getDefaultBranch();
-        assert.strictEqual(branch, null);
-    });
-
-    test("should return current branch if no default branch is found", async () => {
-      (gitService as any).activeRepository = "testRepo";
-      (gitService as any).defaultBranchCache.set("testRepo", null);
-
+    test("should return current branch if no default branch is found via remote", async () => {
       const gitStub = {
-        raw: sandbox.stub().resolves("HEAD branch: "), // Simulate no default branch found
-        revparse: sandbox.stub().resolves("main") // Simulate getting the current branch
+        raw: sandbox
+          .stub()
+          .onFirstCall()
+          .resolves("HEAD branch: ") // Simulate no default branch found in remote show
+          .onSecondCall()
+          .rejects(new Error("Branch not found")) // Simulate rev-parse failing for main
+          .onThirdCall()
+          .rejects(new Error("Branch not found")) // Simulate rev-parse failing for master
+          .onCall(3)
+          .rejects(new Error("Branch not found")), // Simulate rev-parse failing for develop
+        revparse: sandbox.stub().resolves("feature-branch") // Simulate getting the current branch
       };
       (gitService as any).git = gitStub;
+      (gitService as any).activeRepository = "testRepo";
+      (gitService as any).defaultBranchCache.clear();
       sandbox.stub(gitService, "getCurrentRepo").resolves("testRepo");
 
       const branch = await gitService.getDefaultBranch();
-      assert.strictEqual(branch, "main");
-      assert.strictEqual((gitService as any).defaultBranchCache.get("testRepo"), "main");
+      assert.strictEqual(branch, "feature-branch");
+      assert.strictEqual((gitService as any).defaultBranchCache.get("testRepo"), "feature-branch");
+    });
+
+    test("should return null if git is not initialized", async () => {
+      (gitService as any).git = null;
+
+      const branch = await gitService.getDefaultBranch();
+      assert.strictEqual(branch, null);
     });
   });
 });

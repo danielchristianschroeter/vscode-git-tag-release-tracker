@@ -1,5 +1,14 @@
 # Changelog
 
+## [2.4.5]
+
+### Fixed
+
+- Fixed unmerged commits display by ensuring comparisons are made against the remote `origin` default branch instead of the local branch state, providing more accurate commit count information.
+- Corrected compare URL generation to remove the `origin/` prefix from branch names, ensuring proper GitHub/GitLab compare links.
+- Improved test suite stability by refactoring extension initialization and fixing test environment setup issues.
+- Enhanced code maintainability by splitting `extension.ts` into smaller, focused modules (`globals.ts`, `servicesManager.ts`, `commandManager.ts`).
+
 ## [2.4.4]
 
 ## Fixed
