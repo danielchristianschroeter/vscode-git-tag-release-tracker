@@ -178,7 +178,9 @@ export class StatusBarService {
       return;
     }
 
-    const isDefaultBranch = this.cachedData.currentBranch === this.cachedData.defaultBranch;
+    const cleanCurrentBranch = (this.cachedData.currentBranch || "").replace(/^origin\//, "");
+    const cleanDefaultBranch = (this.cachedData.defaultBranch || "").replace(/^origin\//, "");
+    const isDefaultBranch = cleanCurrentBranch === cleanDefaultBranch;
     const {owner, repo} = this.cachedData.ownerAndRepo;
 
     Logger.log(
@@ -233,10 +235,11 @@ export class StatusBarService {
       ["major", "minor", "patch"].forEach((type, index) => {
         const newVersion = semver.inc(version, type as semver.ReleaseType);
         if (newVersion) {
+          const fullNewTag = `${prefix}${newVersion}${suffix}`;
           this.updateButton(
             index,
-            `${newVersion}`,
-            `Create and push ${type} tag version ${prefix}${newVersion}${suffix} for ${owner}/${repo}`
+            fullNewTag,
+            `Create and push ${type} tag version ${fullNewTag} for ${owner}/${repo}`
           );
           this.buttons[index].command = `extension.create${type.charAt(0).toUpperCase() + type.slice(1)}Tag`;
           this.buttons[index].show();
@@ -254,15 +257,12 @@ export class StatusBarService {
     }
 
     const {owner, repo} = this.cachedData.ownerAndRepo;
-    const isDefaultBranch = this.cachedData.currentBranch === this.cachedData.defaultBranch;
+    const cleanCurrentBranch = (this.cachedData.currentBranch || "").replace(/^origin\//, "");
+    const cleanDefaultBranch = (this.cachedData.defaultBranch || "").replace(/^origin\//, "");
+    const isDefaultBranch = cleanCurrentBranch === cleanDefaultBranch;
 
     let unreleasedCount = 0;
     let unmergedCount = 0;
-
-    // Force refresh the latest tag
-    if (forceRefresh) {
-      this.cachedData.latestTag = await this.gitService.fetchAndTags(true);
-    }
 
     if (isDefaultBranch && this.cachedData.latestTag?.latest) {
       unreleasedCount = await this.gitService.getCommitCounts(
@@ -285,7 +285,7 @@ export class StatusBarService {
       }
     }
 
-    // Update the cached unreleased count
+    // Update the cached unreleased count for consistency
     this.cachedData.unreleasedCount = unreleasedCount;
 
     let buttonText = "";
@@ -399,7 +399,7 @@ export class StatusBarService {
 
       await Promise.all([
         this.updateVersionButtons(),
-        this.updateCommitCountButton(),
+        this.updateCommitCountButton(forceRefresh),
         this.updateCompareUrl(),
         ...(ciType
           ? [
@@ -562,16 +562,18 @@ export class StatusBarService {
 
       const {baseUrl, projectPath} = repoInfo;
 
-      if (this.cachedData.currentBranch !== this.cachedData.defaultBranch) {
-        const cleanDefaultBranch = this.cachedData.defaultBranch.replace(/^origin\//, "");
-        const cleanCurrentBranch = this.cachedData.currentBranch.replace(/^origin\//, "");
+      const cleanDefaultBranch = (this.cachedData.defaultBranch || "").replace(/^origin\//, "");
+      const cleanCurrentBranch = (this.cachedData.currentBranch || "").replace(/^origin\//, "");
+
+      if (cleanCurrentBranch !== cleanDefaultBranch) {
         this.compareUrl = `${baseUrl}/${projectPath}/compare/${cleanDefaultBranch}...${cleanCurrentBranch}`;
       } else {
+        // Default branch: compare latest tag to current branch
         if (this.cachedData.latestTag?.latest) {
-          this.compareUrl = `${baseUrl}/${projectPath}/compare/${this.cachedData.latestTag.latest}...${this.cachedData.defaultBranch}`;
+          this.compareUrl = `${baseUrl}/${projectPath}/compare/${this.cachedData.latestTag.latest}...${cleanDefaultBranch}`;
         } else {
           const initialCommit = await this.gitService.getInitialCommit();
-          this.compareUrl = `${baseUrl}/${projectPath}/compare/${initialCommit}...${this.cachedData.defaultBranch}`;
+          this.compareUrl = `${baseUrl}/${projectPath}/compare/${initialCommit}...${cleanDefaultBranch}`;
         }
       }
       Logger.log(`Compare URL updated: ${this.compareUrl}`, "INFO");
