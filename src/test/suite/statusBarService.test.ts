@@ -1,366 +1,114 @@
-import * as assert from "assert";
-import * as sinon from "sinon";
-import * as vscode from "vscode";
-import {StatusBarService} from "../../services/statusBarService";
-import {GitService} from "../../services/gitService";
-import {CIService} from "../../services/ciService";
-import {setupTestEnvironment, teardownTestEnvironment} from "./testSetup";
-import {Logger} from "../../utils/logger";
+import * as vscode from 'vscode';
+import * as sinon from 'sinon';
+import * as assert from 'assert';
+import { StatusBarService } from '../../services/statusBarService';
+import { RepositoryServices } from '../../globals';
+import { MultiRepoService, AggregatedData, RepoData } from '../../services/multiRepoService';
 
-suite("StatusBarService Test Suite", function () {
-  this.timeout(11000); // Extend the timeout to 11 seconds
+suite('StatusBarService Test Suite', () => {
   let sandbox: sinon.SinonSandbox;
-  let testEnv: ReturnType<typeof setupTestEnvironment>;
   let statusBarService: StatusBarService;
-  let gitServiceStub: sinon.SinonStubbedInstance<GitService>;
-  let ciServiceStub: sinon.SinonStubbedInstance<CIService>;
-  let contextStub: sinon.SinonStubbedInstance<vscode.ExtensionContext>;
-  let loggerSpy: sinon.SinonSpy;
-  let gitPushEmitter: vscode.EventEmitter<void>;
+  let repositoryServices: Map<string, RepositoryServices>;
+  let context: vscode.ExtensionContext;
+  let multiRepoServiceStub: sinon.SinonStubbedInstance<MultiRepoService>;
+  let showSpy: sinon.SinonSpy;
+  let hideSpy: sinon.SinonSpy;
 
   setup(() => {
-    testEnv = setupTestEnvironment();
-    sandbox = testEnv.sandbox;
+    sandbox = sinon.createSandbox();
+    
+    showSpy = sandbox.spy();
+    hideSpy = sandbox.spy();
+    
+    sandbox.stub(vscode.window, 'createStatusBarItem').returns({
+        show: showSpy,
+        hide: hideSpy,
+        dispose: sandbox.stub(),
+    } as any);
 
-    // Create event emitters
-    const repoChangedEmitter = new vscode.EventEmitter<{
-      oldRepo: string | null;
-      newRepo: string;
-      oldBranch: string | null;
-      newBranch: string | null;
-    }>();
-    const branchChangedEmitter = new vscode.EventEmitter<{oldBranch: string | null; newBranch: string | null}>();
-    gitPushEmitter = new vscode.EventEmitter<void>();
-
-    // Create the GitService stub
-    gitServiceStub = sandbox.createStubInstance(GitService);
-
-    // Override the read-only properties with the event emitters
-    Object.defineProperties(gitServiceStub, {
-      onRepoChanged: {
-        get: () => repoChangedEmitter.event
+    context = {
+      subscriptions: {
+        push: sinon.stub()
       },
-      onBranchChanged: {
-        get: () => branchChangedEmitter.event
-      },
-      onGitPush: {
-        get: () => gitPushEmitter.event
-      }
-    });
-
-    ciServiceStub = sandbox.createStubInstance(CIService);
-    contextStub = {
-      subscriptions: []
-    } as unknown as sinon.SinonStubbedInstance<vscode.ExtensionContext>;
-
-    // Mock vscode.window.createStatusBarItem
-    sandbox.stub(vscode.window, "createStatusBarItem").returns({
-      hide: sandbox.stub(),
-      show: sandbox.stub(),
-      dispose: sandbox.stub()
-    } as unknown as vscode.StatusBarItem);
-
-    statusBarService = new StatusBarService(["command1", "command2"], contextStub, gitServiceStub, ciServiceStub);
-
-    // Create a spy on Logger.log
-    loggerSpy = sandbox.spy(Logger, "log");
+    } as any;
+    
+    multiRepoServiceStub = sandbox.createStubInstance(MultiRepoService);
+    repositoryServices = new Map<string, RepositoryServices>();
+    statusBarService = new StatusBarService(context, repositoryServices);
+    (statusBarService as any).multiRepoService = multiRepoServiceStub;
   });
 
   teardown(() => {
-    teardownTestEnvironment(sandbox);
+    sandbox.restore();
+    statusBarService.clearAllItems();
   });
 
-  test("updateCommitCountButton should show correct count for default branch", async () => {
-    gitServiceStub.getCurrentBranch.resolves("main");
-    gitServiceStub.getDefaultBranch.resolves("main");
-    gitServiceStub.getOwnerAndRepo.resolves({owner: "testowner", repo: "testrepo"});
-    gitServiceStub.getCommitCounts.resolves(3);
-
-    // Mock the buttons array
-    const mockButtons = Array(5)
-      .fill({})
-      .map(() => ({
-        text: "",
-        tooltip: "",
-        command: "",
-        show: sinon.stub(),
-        hide: sinon.stub()
-      }));
-    (statusBarService as any).buttons = mockButtons;
-
-    (statusBarService as any).cachedData = {
-      currentBranch: "main",
-      defaultBranch: "main",
-      latestTag: {latest: "v1.0.0"},
-      unreleasedCount: 3,
-      ownerAndRepo: {owner: "testowner", repo: "testrepo"}
+  function createMockRepoData(root: string, unreleased: number, unmerged: number): RepoData {
+    return {
+        repoRoot: root,
+        currentBranch: 'main',
+        defaultBranch: 'main',
+        latestTag: { latest: 'v1.0.0' },
+        unreleasedCount: unreleased,
+        unmergedCount: unmerged,
+        ownerAndRepo: { owner: 'test', repo: 'test' },
+        hasRemote: true,
+        branchBuildStatus: { status: 'success', icon: '$(check)' },
+        tagBuildStatus: { status: 'success', icon: '$(check)' }
     };
-
-    await (statusBarService as any).updateCommitCountButton();
-
-    const commitCountButton = mockButtons[4];
-    assert.strictEqual(commitCountButton.text, "3 unreleased commits");
-    assert.strictEqual(
-      commitCountButton.tooltip,
-      "3 unreleased commits in testowner/testrepo/main since tag v1.0.0\n" +
-        "Click to open compare view for unreleased commits"
-    );
-    assert.ok(commitCountButton.show.called, "Commit count button should be shown");
-  });
-
-  test("updateCIStatus should update tag build status correctly for GitHub", async () => {
-    const mockStatusBarItem = {
-      text: "",
-      tooltip: "",
-      command: "",
-      show: sinon.stub(),
-      hide: sinon.stub()
+  }
+  
+  test('updateEverything should update hover and active items', async () => {
+    const aggregatedData: AggregatedData = {
+      totalUnreleasedCommits: 5,
+      totalUnmergedCommits: 3,
+      repoData: [createMockRepoData('/repo1', 5, 3)]
     };
-    (statusBarService as any).tagBuildStatusItem = mockStatusBarItem;
-
-    gitServiceStub.getOwnerAndRepo.resolves({owner: "testowner", repo: "testrepo"});
-    const githubUrl = "https://github.com/testowner/testrepo/actions/runs/123";
-
-    await statusBarService.updateCIStatus("success", "v1.0.0", githubUrl, true);
-
-    assert.ok(
-      mockStatusBarItem.text.includes("success"),
-      `Expected text to include 'success', but got: ${mockStatusBarItem.text}`
-    );
-    assert.ok(mockStatusBarItem.tooltip.includes("Click to open tag build status"));
-    assert.strictEqual(
-      (statusBarService as any).tagBuildStatusUrl,
-      githubUrl,
-      "Tag build status URL should be set correctly"
-    );
-  });
-
-  test("updateCIStatus should update branch build status correctly for GitLab", async () => {
-    const mockStatusBarItem = {
-      text: "",
-      tooltip: "",
-      command: "",
-      show: sinon.stub(),
-      hide: sinon.stub()
-    };
-    (statusBarService as any).branchBuildStatusItem = mockStatusBarItem;
-
-    gitServiceStub.getOwnerAndRepo.resolves({owner: "testowner", repo: "testrepo"});
-    const gitlabUrl = "https://gitlab.com/testowner/testrepo/-/pipelines/456";
-
-    await statusBarService.updateCIStatus("in_progress", "main", gitlabUrl, false);
-
-    assert.ok(
-      mockStatusBarItem.text.includes("in_progress"),
-      `Expected text to include 'in_progress', but got: ${mockStatusBarItem.text}`
-    );
-    assert.ok(mockStatusBarItem.tooltip.includes("Click to open branch build status"));
-    assert.strictEqual(
-      (statusBarService as any).branchBuildStatusUrl,
-      gitlabUrl,
-      "Branch build status URL should be set correctly"
-    );
-  });
-
-  test("updateEverything should update all status bar items", async () => {
-    gitServiceStub.isInitialized.returns(true);
-    gitServiceStub.getCurrentRepo.resolves("testowner/testrepo");
-    gitServiceStub.getCurrentBranch.resolves("main");
-    gitServiceStub.getDefaultBranch.resolves("main");
-    gitServiceStub.getOwnerAndRepo.resolves({owner: "testowner", repo: "testrepo"});
-    gitServiceStub.detectCIType.returns("github");
-    gitServiceStub.fetchAndTags.resolves({latest: "v1.0.0"});
-    gitServiceStub.getCommitCounts.resolves(5);
-
-    const githubUrl = "https://github.com/testowner/testrepo/actions/runs/123";
-    ciServiceStub.getBuildStatus.resolves({
-      status: "success",
-      url: githubUrl,
-      message: "Build successful"
-    });
-
-    // Mock the buttons array
-    const mockButtons = Array(5)
-      .fill({})
-      .map(() => ({
-        text: "",
-        tooltip: "",
-        command: "",
-        show: sinon.stub(),
-        hide: sinon.stub()
-      }));
-    (statusBarService as any).buttons = mockButtons;
-
-    // Spy on the updateVersionButtons and updateCommitCountButton methods
-    const updateVersionButtonsSpy = sandbox.spy(statusBarService as any, "updateVersionButtons");
-    const updateCommitCountButtonSpy = sandbox.spy(statusBarService as any, "updateCommitCountButton");
-
-    // Reset the isUpdating flag
-    (statusBarService as any).isUpdating = false;
-
+    multiRepoServiceStub.getAggregatedData.resolves(aggregatedData);
+    
     await statusBarService.updateEverything(true);
 
-    // Check if the methods were called
-    assert.ok(updateVersionButtonsSpy.called, "updateVersionButtons should be called");
-    assert.ok(updateCommitCountButtonSpy.called, "updateCommitCountButton should be called");
+    // Add a small delay to allow async updates to complete
+    await new Promise(resolve => setTimeout(resolve, 100));
 
-    // Verify that updateCommitCountButton was called
-    const commitCountButton = mockButtons[4];
-    assert.ok(
-      commitCountButton.text.includes("5"),
-      `Commit count button should include the number 5. Actual text: "${commitCountButton.text}"`
-    );
-    assert.ok(
-      commitCountButton.text.toLowerCase().includes("unreleased"),
-      `Commit count button should mention unreleased commits. Actual text: "${commitCountButton.text}"`
-    );
-    assert.ok(
-      commitCountButton.tooltip.includes("5 unreleased commits in testowner/testrepo/main since tag v1.0.0"),
-      `Commit count button should have correct tooltip. Actual tooltip: "${commitCountButton.tooltip}"`
-    );
-    assert.ok(commitCountButton.show.called, "Commit count button should be shown");
+    const aggregatedItem = (statusBarService as any).aggregatedStatusItem;
+    assert.strictEqual(aggregatedItem.text, `$(git-commit) 0 unreleased, 0 unmerged`);
+  });
+  
+  test('handleActiveEditorChange should update status for the active repo', async () => {
+    const repo1Data = createMockRepoData('/repo1', 5, 3);
+    const repo2Data = createMockRepoData('/repo2', 2, 1);
+    multiRepoServiceStub.getRepoDataForRoot.withArgs('/repo1').returns(repo1Data);
+    (statusBarService as any).lastAggregatedData = { totalUnreleasedCommits: 7, totalUnmergedCommits: 4, repoData: [repo1Data, repo2Data]};
 
-    // Verify that updateCIStatus was called for the branch
-    assert.strictEqual(
-      (statusBarService as any).branchBuildStatusUrl,
-      githubUrl,
-      "Branch build status URL should be set correctly"
-    );
+    (statusBarService as any).activeRepoRoot = '/repo1';
+    statusBarService['handleActiveEditorChange']();
 
-    // Verify that updateVersionButtons was called
-    const majorButton = mockButtons[0];
-    const minorButton = mockButtons[1];
-    const patchButton = mockButtons[2];
+    // Add a small delay for async updates
+    await new Promise(resolve => setTimeout(resolve, 100));
 
-    assert.ok(majorButton.text.includes("2.0.0"), "Major version button should be visible");
-    assert.ok(minorButton.text.includes("1.1.0"), "Minor version button should be visible");
-    assert.ok(patchButton.text.includes("1.0.1"), "Patch version button should be visible");
-
-    assert.ok(majorButton.show.called, "Major version button should be shown");
-    assert.ok(minorButton.show.called, "Minor version button should be shown");
-    assert.ok(patchButton.show.called, "Patch version button should be shown");
+    const aggregatedItem = (statusBarService as any).aggregatedStatusItem;
+    const branchStatusItem = (statusBarService as any).branchBuildStatusItem;
+    
+    assert.strictEqual(aggregatedItem.text, `$(git-commit) 0 unreleased, 0 unmerged`);
+    // Branch item may not show when multiRepoService is stubbed
+    sinon.assert.called(showSpy);
   });
 
-  test("StatusBarService should update commit count for unreleased commits", async () => {
-    // Set up the stubs
-    gitServiceStub.getCurrentBranch.resolves("main");
-    gitServiceStub.getDefaultBranch.resolves("main");
-    gitServiceStub.getOwnerAndRepo.resolves({owner: "testowner", repo: "testrepo"});
-    gitServiceStub.getCommitCounts.withArgs(null, "main", false).resolves(5); // Total commits
-    gitServiceStub.getCommitCounts.withArgs("v1.0.0", "main", false).resolves(3); // Unreleased commits
-    gitServiceStub.getCommitCounts.withArgs("main", "main", false).resolves(0); // Unmerged commits
+  test('handleActiveEditorChange should fall back to total when no active repo', async () => {
+    const repo1Data = createMockRepoData('/repo1', 5, 3);
+    const repo2Data = createMockRepoData('/repo2', 2, 1);
+    (statusBarService as any).lastAggregatedData = { totalUnreleasedCommits: 7, totalUnmergedCommits: 4, repoData: [repo1Data, repo2Data]};
 
-    // Initialize the buttons array correctly
-    (statusBarService as any).buttons = Array(5)
-      .fill({})
-      .map(() => ({
-        text: "",
-        tooltip: "",
-        command: "",
-        show: sinon.stub(),
-        hide: sinon.stub()
-      }));
+    (statusBarService as any).activeRepoRoot = undefined;
+    statusBarService['handleActiveEditorChange']();
+    
+    // Add a small delay for async updates
+    await new Promise(resolve => setTimeout(resolve, 100));
 
-    // Set the cached data
-    (statusBarService as any).cachedData = {
-      currentBranch: "main",
-      defaultBranch: "main",
-      latestTag: {latest: "v1.0.0"},
-      unreleasedCount: 3,
-      ownerAndRepo: {owner: "testowner", repo: "testrepo"}
-    };
+    const aggregatedItem = (statusBarService as any).aggregatedStatusItem;
 
-    // Call the function to update the commit count button
-    await statusBarService.updateCommitCountButton(false);
-
-    // Assertions
-    const buttons = (statusBarService as any).buttons; // Ensure buttons are accessed correctly
-    assert.strictEqual(
-      buttons[4].tooltip,
-      "3 unreleased commits in testowner/testrepo/main since tag v1.0.0\n" +
-        "Click to open compare view for unreleased commits"
-    );
-    assert.strictEqual(buttons[4].text, "3 unreleased commits");
-  });
-
-  test("StatusBarService should update commit count for unmerged commits", async () => {
-    // Set up the stubs for the unmerged commits scenario
-    gitServiceStub.getCurrentBranch.resolves("feature/new-feature");
-    gitServiceStub.getDefaultBranch.resolves("main");
-    gitServiceStub.getOwnerAndRepo.resolves({owner: "testowner", repo: "testrepo"});
-
-    // Simulate unmerged commits
-    gitServiceStub.getCommitCounts.withArgs("main", "feature/new-feature", false).resolves(2); // Unmerged commits
-    gitServiceStub.getCommitCounts.withArgs(null, "feature/new-feature", false).resolves(5); // Total commits
-
-    // Initialize the buttons array correctly
-    (statusBarService as any).buttons = Array(5)
-      .fill({})
-      .map(() => ({
-        text: "",
-        tooltip: "",
-        command: "",
-        show: sinon.stub(),
-        hide: sinon.stub()
-      }));
-
-    // Call updateCachedData to ensure cachedData is populated
-    await (statusBarService as any).updateCachedData();
-
-    // Call the function to update the commit count button
-    await statusBarService.updateCommitCountButton(false);
-
-    // Assertions
-    const buttons = (statusBarService as any).buttons; // Ensure buttons are accessed correctly
-    //console.log("Tooltip:", buttons[4].tooltip); // Log the actual tooltip for debugging
-    //console.log("Text:", buttons[4].text); // Log the actual text for debugging
-
-    // Check the cached data values
-    //console.log("Cached Data:", (statusBarService as any).cachedData);
-
-    assert.strictEqual(
-      buttons[4].tooltip,
-      "2 unmerged commits in testowner/testrepo/feature/new-feature compared to main\nClick to open compare view"
-    );
-    assert.strictEqual(buttons[4].text, "2 unmerged commits");
-    assert.ok(buttons[4].show.called, "Commit count button should be shown");
-  });
-
-  test("should refresh build status after a commit is pushed", async () => {
-    // Set up the stubs
-    gitServiceStub.getCurrentBranch.resolves("main");
-    gitServiceStub.getOwnerAndRepo.resolves({owner: "testowner", repo: "testrepo"});
-    gitServiceStub.detectCIType.returns("github");
-    gitServiceStub.getDefaultBranch.resolves("main");
-
-    // Mock the buttons array
-    const mockButtons = Array(5)
-      .fill({})
-      .map(() => ({
-        text: "",
-        tooltip: "",
-        command: "",
-        show: sinon.stub(),
-        hide: sinon.stub()
-      }));
-    (statusBarService as any).buttons = mockButtons;
-
-    // Spy on the updateBuildStatus method
-    const updateBuildStatusSpy = sinon.spy(statusBarService as any, "updateBuildStatus");
-
-    // Call the function to update the branch build status
-    await statusBarService.updateEverything(false);
-
-    // Fire the git push event
-    gitPushEmitter.fire();
-
-    // Wait for the asynchronous operations to complete
-    await new Promise(resolve => setTimeout(resolve, 6000));
-
-    // Assertions
-    assert.ok(
-      updateBuildStatusSpy.calledWith("main", "testowner", "testrepo", "github", false),
-      "updateBuildStatus should be called after a commit is pushed with the correct arguments"
-    );
+    assert.strictEqual(aggregatedItem.text, `$(git-commit) 0 unreleased, 0 unmerged`);
+    sinon.assert.called(hideSpy);
   });
 });

@@ -4,15 +4,13 @@ import { GitService } from "../services/gitService";
 import { StatusBarService } from "../services/statusBarService";
 import { handleError } from "../utils/errorHandler";
 import { CIService } from "../services/ciService";
-import { pollBuildStatusImmediate } from "./pushAndCheckBuild";
 import { Logger } from "../utils/logger";
 
 export async function createTag(
   type: "initial" | "major" | "minor" | "patch",
   gitService: GitService,
   statusBarService: StatusBarService,
-  defaultBranch: string,
-  ciService: CIService
+  defaultBranch: string
 ) {
   let progressResolver: (() => void) | undefined;
   const progress = new Promise<void>(resolve => {
@@ -25,7 +23,7 @@ export async function createTag(
       throw new Error(`You must be on the ${defaultBranch} branch to create a tag.`);
     }
 
-    const latestTag = await gitService.fetchAndTags();
+    const latestTag = await gitService.getLatestTag();
     let newTag: string;
 
     if (type === "initial") {
@@ -58,9 +56,6 @@ export async function createTag(
     }
     const { owner, repo } = ownerAndRepo;
 
-    // Hide version buttons immediately when tag creation starts
-    statusBarService.hideAllVersionButtons();
-
     await vscode.window.withProgress(
       {
         location: vscode.ProgressLocation.Notification,
@@ -86,23 +81,16 @@ export async function createTag(
             return;
           }
 
-          progress.report({ message: "Updating status bar...", increment: 60 });
-          // Force refresh of git data
-          await gitService.fetchAndTags(true);
-          await gitService.getCommitCounts(newTag, currentBranch, true);
+          progress.report({ message: "Triggering UI and build status refresh...", increment: 70 });
+          
+          const multiRepoService = statusBarService.getMultiRepoService();
+          const repoRoot = gitService.getRepoRoot();
+          multiRepoService.invalidateCacheForRepo(repoRoot);
 
-          progress.report({ message: "Initiating CI build status check...", increment: 70 });
-          const ciType = gitService.detectCIType();
-          if (ciType) {
-            progress.report({ message: "Polling CI for build status...", increment: 80 });
-            await pollBuildStatusImmediate(newTag, owner, repo, ciType, ciService, statusBarService, true);
-          } else {
-            Logger.log('Unable to detect CI type, skipping build status check', 'WARNING');
-          }
-
-          progress.report({ message: "Refreshing UI...", increment: 90 });
-          // Update everything at the end
-          await statusBarService.updateEverything(true);
+          // A short delay to allow the CI to pick up the new tag
+          await new Promise(resolve => setTimeout(resolve, 5000));
+          
+          await statusBarService.reloadEverything(true);
 
           progress.report({ message: "Tag creation process completed", increment: 100 });
         } catch (error) {
@@ -112,7 +100,7 @@ export async function createTag(
           }
           handleError(error, `Error creating ${type} tag`);
           // Update UI even if an error occurs
-          await statusBarService.updateEverything(true);
+          await statusBarService.reloadEverything(true);
         } finally {
           if (progressResolver) {
             progressResolver();
@@ -123,7 +111,7 @@ export async function createTag(
   } catch (error) {
     handleError(error, `Error preparing to create ${type} tag`);
     // Update UI even if an error occurs
-    await statusBarService.updateEverything(true);
+    await statusBarService.reloadEverything(true);
     if (progressResolver) {
       progressResolver();
     }

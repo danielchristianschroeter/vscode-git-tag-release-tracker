@@ -1,80 +1,71 @@
-# Multi-Repo Dashboard Implementation Plan
+# Refined Multi-Repo Dashboard Implementation Plan
 
-This plan outlines the tasks required to implement the Multi-Repo Dashboard feature, including commit counts, automated merge requests, and optional LLM integration.
+This plan outlines the tasks required to implement the Multi-Repo Dashboard feature. It prioritizes architectural refactoring to support multiple repositories and implements a concise, hover-based UI on the status bar, as requested.
 
-## 1. Foundational Setup
+## 1. Core Architectural Refactoring
 
-- **Task 1.1: Create a new `multiRepo` command.**
-  - This command will open a new webview panel displaying the dashboard.
-- **Task 1.2: Design the webview UI.**
-  - Create a table layout with columns for:
-    - Repository Name
-    - Current Branch
-    - Latest Tag
-    - Unreleased Commits
-    - Unmerged Commits
-    - CI Status
-- **Task 1.3: Implement the basic webview panel.**
-  - Create the HTML structure and basic CSS for the dashboard.
+- **Task 1.1: Create `WorkspaceService`.** (Completed)
+- **Task 1.2: Refactor `GitService` for Multi-Repo.** (Completed)
+- **Task 1.3: Refactor `CIService` for Multi-Repo.** (Completed)
+- **Task 1.4: Update `servicesManager.ts`.** (Completed)
 
-## 2. Data Fetching and Display
+## 2. Status Bar and Hover UI
 
-- **Task 2.1: Create a `MultiRepoService`.**
-  - This service will be responsible for gathering data from all repositories in the workspace.
-- **Task 2.2: Implement data fetching logic.**
-  - The `MultiRepoService` will use the existing `GitService` and `CIService` to fetch the required data for each repository.
-- **Task 2.3: Implement data caching.**
-  - Cache the fetched data to improve performance and avoid hitting API rate limits.
-- **Task 2.4: Display the data in the webview.**
-  - Populate the dashboard table with the fetched data.
+- **Task 2.1: Enhance `StatusBarService`.** (Completed)
+- **Task 2.2: Implement `MultiRepoHoverProvider`.** (Completed, as part of `StatusBarService`)
+- **Task 2.3: Design the Hover UI.** (Completed)
 
-## 3. Commit Counts
+## 3. Data Fetching and Display
 
-- **Task 3.1: Add commit count columns to the dashboard.**
-  - Add columns for "Unreleased Commits" and "Unmerged Commits" to the table.
-- **Task 3.2: Implement commit count logic.**
-  - The `MultiRepoService` will use the `GitService` to calculate the commit counts for each repository.
-- **Task 3.3: Display the commit counts.**
-  - Show the commit counts in the dashboard table.
+- **Task 3.1: Create `MultiRepoService`.** (Completed)
+- **Task 3.2: Implement Data Fetching and Caching.** (Completed)
+- **Task 3.3: Display Data in Hover.** (Completed)
 
-## 4. Automated Merge Requests
+## 4. Core Feature Implementation
 
-- **Task 4.1: Add a "Create MR" button to the dashboard.**
-  - Add a button to each row of the table that will trigger the merge request creation process.
-- **Task 4.2: Implement the merge request creation logic.**
-  - When the "Create MR" button is clicked, the extension will:
-    - Create a new merge request in the corresponding repository.
-    - Pre-fill the title and description with relevant information.
-- **Task 4.3: Add a "Create All MRs" button.**
-  - Add a button to the top of the dashboard that will create merge requests for all repositories with unmerged commits.
+- **Task 4.1: Implement Commit Counts.** (Completed)
+- **Task 4.2: Implement Actions from Hover UI.** (Completed)
+- **Task 4.3: Enhance MR Creation with LLM.** (Deferred)
+  - When a "Create MR" link is activated, the `LLMService` will be used to automatically generate a title and description for the merge request.
+  - This provides a seamless, one-click process to create a well-documented merge request.
 
-## 5. LLM Integration
+## 5. LLM Integration (Deferred)
 
-- **Task 5.1: Create a generic LLM service.**
-  - This service will provide a common interface for all LLM providers.
-- **Task 5.2: Add settings to configure LLM providers.**
-  - Users will be able to select their preferred provider and enter their API keys.
-- **Task 5.3: Implement a Gemini client.**
-  - This will be the first client to implement the LLM service interface.
-- **Task 5.4: Implement clients for other LLM providers.**
-  - This will allow for the easy addition of other providers in the future.
-- **Task 5.5: Generate merge request title and descriptions using the selected LLM provider.**
-  - The LLM service will be used to generate the descriptions, regardless of the selected provider.
+- **Task 5.1: Create a generic `LLMService`.** (Deferred)
+  - This service will provide a common interface for various LLM providers, responsible for generating text based on commit messages.
+- **Task 5.2: Add Configuration Settings.** (Deferred)
+  - Allow users to configure their preferred LLM provider and API keys in the settings.
 
 ## 6. Testing
 
-- **Task 6.1: Write unit tests for the `MultiRepoService`.**
-  - Test the data fetching, caching, and commit count logic.
-- **Task 6.2: Write unit tests for the merge request creation logic.**
-  - Test the merge request creation process, including the pre-filling of the title and description.
-- **Task 6.3: Write integration tests for the dashboard.**
-  - Test the entire workflow, from opening the dashboard to creating a merge request.
-- **Task 6.4: Write tests for the LLM integration.**
-  - Test the generic LLM service and the individual clients.
+- **Task 6.1: Write Unit Tests for New Services.** (Completed)
+  - Tests for MultiRepoService
+  - Tests for loading indicator in StatusBarService
+  - Tests for build status integration in CIService
+  - Tests for fixed unmerged commit count calculation in GitService
+- **Task 6.2: Update Existing Unit Tests.** (Completed)
+  - Updated tests to account for new features and fixed bugs
+  - Fixed test assertions to match the new UI elements and behavior
+- **Task 6.3: Write Integration Tests for Hover UI.** (Completed)
+  - Tests for hover UI with different repository states
+  - Tests for build status indicators and clickable links
+- **Task 6.4: Write Tests for LLM Integration.** (Deferred)
 
 ## 7. Documentation
 
-- **Task 7.1: Update the README.**
-  - Add a section on the Multi-Repo Dashboard, explaining how to use it and its features.
-- **Task 7.2: Update the CHANGELOG.**
-  - Add an entry for the new feature.
+- **Task 7.1: Update `README.md`.** (Completed)
+- **Task 7.2: Update `CHANGELOG.md`.** (Completed)
+
+## 8. Bug Fixes
+
+- **Task 8.1: Fix repository detection at startup.** (Completed)
+  - Added loading indicator during repository detection
+  - Fixed "No git repositories found" message showing incorrectly
+- **Task 8.2: Fix Compare link functionality on Windows.** (Completed)
+  - Fixed URI handling for Windows paths
+- **Task 8.3: Fix version increment buttons in hover menu.** (Completed)
+  - Restored Major, Minor, Patch buttons
+  - Added clear explanation that version increments preserve prefixes/suffixes
+- **Task 8.4: Fix unmerged commit count calculation.** (Completed)
+  - Updated to properly compare with remote branches
+  - Added tests to verify the fix

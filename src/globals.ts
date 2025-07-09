@@ -3,16 +3,19 @@ import {CIService} from "./services/ciService";
 import {GitService} from "./services/gitService";
 import {StatusBarService} from "./services/statusBarService";
 
+export interface RepositoryServices {
+  gitService: GitService;
+  ciService: CIService;
+}
+
 export const globals: {
   context: vscode.ExtensionContext | null;
-  gitService: GitService | null;
+  repositoryServices: Map<string, RepositoryServices>;
   statusBarService: StatusBarService | null;
-  ciService: CIService | null;
   isInitialized: boolean;
 } = {
   context: null,
-  gitService: null,
+  repositoryServices: new Map(),
   statusBarService: null,
-  ciService: null,
   isInitialized: false
 };

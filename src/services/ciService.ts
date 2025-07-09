@@ -2,6 +2,16 @@ import * as vscode from "vscode";
 import axios, {AxiosError, AxiosResponse} from "axios";
 import {Logger} from "../utils/logger";
 
+export interface BuildStatus {
+  status: string;
+  url?: string;
+  icon?: string;
+  message?: string;
+  response?: {
+    headers: any;
+  };
+}
+
 interface CIProvider {
   token: string;
   apiUrl: string;
@@ -13,7 +23,7 @@ export class CIService {
     [repoKey: string]: {
       [cacheKey: string]: {
         status: string;
-        url: string;
+        url?: string;
         message?: string;
         timestamp: number;
       };
@@ -24,7 +34,7 @@ export class CIService {
   private inProgressCacheDuration = 10000; // 10 seconds
   private cacheDuration = 60000; // 1 minute cache
 
-  constructor() {
+  constructor(private owner: string, private repo: string) {
     this.providers = this.loadProviders();
   }
 
@@ -37,18 +47,16 @@ export class CIService {
 
   async getBuildStatus(
     ref: string,
-    owner: string,
-    repo: string,
     ciType: "github" | "gitlab",
     isTag: boolean,
     forceRefresh: boolean = false
-  ): Promise<{status: string; url: string; message?: string} | null> {
+  ): Promise<BuildStatus | null> {
     if (!ref) {
-      Logger.log(`Skipping build status fetch due to empty ref for ${owner}/${repo}`, "INFO");
+      Logger.log(`Skipping build status fetch due to empty ref for ${this.owner}/${this.repo}`, "INFO");
       return null;
     }
 
-    const repoKey = `${owner}/${repo}`;
+    const repoKey = `${this.owner}/${this.repo}`;
     const cacheKey = `${ref}/${ciType}`;
     const now = Date.now();
 
@@ -59,12 +67,12 @@ export class CIService {
       const validCacheDuration = isInProgress ? this.inProgressCacheDuration : this.cacheDuration;
 
       if (cacheAge < validCacheDuration) {
-        Logger.log(`Returning cached build status for ${ref} (${owner}/${repo})`, "INFO");
+        Logger.log(`Returning cached build status for ${ref} (${this.owner}/${this.repo})`, "INFO");
         return cachedResult;
       }
     }
 
-    Logger.log(`Fetching fresh build status for ${ref} (${owner}/${repo}) using ${ciType}`, "INFO");
+    Logger.log(`Fetching fresh build status for ${ref} (${this.owner}/${this.repo}) using ${ciType}`, "INFO");
     try {
       const provider = this.providers[ciType];
       if (!provider || !provider.token || !provider.apiUrl) {
@@ -72,16 +80,16 @@ export class CIService {
         return {status: "unknown", url: "", message: `CI Provider ${ciType} is not properly configured.`};
       }
 
-      if (!owner || !repo) {
+      if (!this.owner || !this.repo) {
         Logger.log("Owner or repo is not provided", "WARNING");
         return {status: "unknown", url: "", message: "Unable to determine owner and repo."};
       }
 
-      let result: {status: string; url: string; message?: string; response?: {headers: any}};
+      let result: BuildStatus;
       if (ciType === "github") {
-        result = await this.getGitHubBuildStatus(ref, owner, repo, provider, isTag);
+        result = await this.getGitHubBuildStatus(ref, provider, isTag);
       } else if (ciType === "gitlab") {
-        result = await this.getGitLabBuildStatus(ref, owner, repo, provider, isTag);
+        result = await this.getGitLabBuildStatus(ref, provider, isTag);
       } else {
         throw new Error("Unsupported CI type");
       }
@@ -91,23 +99,25 @@ export class CIService {
         this.checkRateLimit(result.response.headers, ciType);
       }
 
-      // Remove the 'response' property before caching and returning
-      const {response, ...returnResult} = result;
-      this.cacheResult(owner, repo, ref, ciType, returnResult);
-      return returnResult;
+      this.cacheResult(ref, ciType, result);
+      
+      // Add icon to result before returning
+      result.icon = this.getStatusIcon(result.status);
+
+      return result;
     } catch (error) {
-      return this.handleFetchError(error, owner, repo, ciType);
+      const errorResult = this.handleFetchError(error, ciType);
+      errorResult.icon = this.getStatusIcon(errorResult.status);
+      return errorResult;
     }
   }
 
   private async getGitHubBuildStatus(
     ref: string,
-    owner: string,
-    repo: string,
     provider: CIProvider,
     isTag: boolean
-  ): Promise<{status: string; url: string; message?: string; response?: {headers: any}}> {
-    const runsUrl = `${provider.apiUrl}/repos/${owner}/${repo}/actions/runs`;
+  ): Promise<BuildStatus> {
+    const runsUrl = `${provider.apiUrl}/repos/${this.owner}/${this.repo}/actions/runs`;
     Logger.log(`Fetching workflow runs for ${ref} from: ${runsUrl}`, "INFO");
 
     // If it's a tag and the ref is empty, return no_runs immediately
@@ -115,7 +125,7 @@ export class CIService {
       Logger.log("Empty tag provided, returning no_runs status", "INFO");
       return {
         status: "no_runs",
-        url: `${provider.apiUrl}/${owner}/${repo}/-/pipelines`,
+        url: `${provider.apiUrl}/${this.owner}/${this.repo}/-/pipelines`,
         message: "No tag provided"
       };
     }
@@ -142,7 +152,7 @@ export class CIService {
       if (!latestRun) {
         return {
           status: "no_runs",
-          url: `https://github.com/${owner}/${repo}/actions`,
+          url: `https://github.com/${this.owner}/${this.repo}/actions`,
           message: `No workflow run found for ${isTag ? "tag" : "branch"} ${ref}`,
           response: {headers: runsResponse.headers}
         };
@@ -168,28 +178,26 @@ export class CIService {
       };
     } catch (error) {
       if (axios.isAxiosError(error) && error.response?.status === 404) {
-        Logger.log(`No GitHub Actions found for ${owner}/${repo}`, "INFO");
+        Logger.log(`No GitHub Actions found for ${this.owner}/${this.repo}`, "INFO");
         return {
           status: "no_runs",
-          url: `https://github.com/${owner}/${repo}/actions`,
-          message: `No GitHub Actions configured for ${owner}/${repo}`
+          url: `https://github.com/${this.owner}/${this.repo}/actions`,
+          message: `No GitHub Actions configured for ${this.owner}/${this.repo}`
         };
       }
-      Logger.log(`Error fetching GitHub workflow runs: ${this.getErrorMessage(error)}`, "ERROR");
-      return this.handleFetchError(error, owner, repo, "github");
+      Logger.log(`Error fetching GitHub workflow runs: ${this.getErrorMessage(error, "github").message}`, "ERROR");
+      return this.handleFetchError(error, "github");
     }
   }
 
   private async getGitLabBuildStatus(
     ref: string,
-    owner: string,
-    repo: string,
     provider: CIProvider,
     isTag: boolean
-  ): Promise<{status: string; url: string; message?: string; response?: {headers: any}}> {
+  ): Promise<BuildStatus> {
     // Ensure the API URL includes the /api/v4 path
     const apiUrl = provider.apiUrl.endsWith("/api/v4") ? provider.apiUrl : `${provider.apiUrl}/api/v4`;
-    const pipelinesUrl = `${apiUrl}/projects/${encodeURIComponent(`${owner}/${repo}`)}/pipelines`;
+    const pipelinesUrl = `${apiUrl}/projects/${encodeURIComponent(`${this.owner}/${this.repo}`)}/pipelines`;
     Logger.log(`Fetching pipelines for ${ref} from: ${pipelinesUrl}`, "INFO");
 
     // If it's a tag and the ref is empty, return no_runs immediately
@@ -197,7 +205,7 @@ export class CIService {
       Logger.log("Empty tag provided, returning no_runs status", "INFO");
       return {
         status: "no_runs",
-        url: `${provider.apiUrl}/${owner}/${repo}/-/pipelines`,
+        url: `${provider.apiUrl}/${this.owner}/${this.repo}/-/pipelines`,
         message: "No tag provided"
       };
     }
@@ -221,7 +229,7 @@ export class CIService {
         Logger.log(`No pipelines found for ${isTag ? "tag" : "branch"} ${ref}`, "INFO");
         return {
           status: "no_runs",
-          url: `${provider.apiUrl}/${owner}/${repo}/-/pipelines`,
+          url: `${provider.apiUrl}/${this.owner}/${this.repo}/-/pipelines`,
           message: `No pipeline found for ${isTag ? "tag" : "branch"} ${ref}`,
           response: {headers: pipelinesResponse.headers}
         };
@@ -233,7 +241,7 @@ export class CIService {
         Logger.log(`Pipeline found but doesn't match the requested ref: ${ref}`, "INFO");
         return {
           status: "no_runs",
-          url: `${provider.apiUrl}/${owner}/${repo}/-/pipelines`,
+          url: `${provider.apiUrl}/${this.owner}/${this.repo}/-/pipelines`,
           message: `No pipeline found for ${isTag ? "tag" : "branch"} ${ref}`,
           response: {headers: pipelinesResponse.headers}
         };
@@ -244,21 +252,21 @@ export class CIService {
       Logger.log(`GitLab CI returning status: ${status} for ${isTag ? "tag" : "branch"} ${ref}`, "INFO");
       return {
         status: status,
-        url: `${provider.apiUrl}/${owner}/${repo}/-/pipelines/${latestPipeline.id}`,
+        url: `${provider.apiUrl}/${this.owner}/${this.repo}/-/pipelines/${latestPipeline.id}`,
         message: `GitLab CI returning status: ${status} for ${isTag ? "tag" : "branch"} ${ref}`,
         response: {headers: pipelinesResponse.headers}
       };
     } catch (error) {
       if (axios.isAxiosError(error) && error.response?.status === 404) {
-        Logger.log(`No GitLab Pipelines found for ${owner}/${repo}`, "INFO");
+        Logger.log(`No GitLab pipelines found for ${this.owner}/${this.repo}`, "INFO");
         return {
           status: "no_runs",
-          url: `${provider.apiUrl}/${owner}/${repo}/-/pipelines`,
-          message: `No GitLab Pipelines configured for ${owner}/${repo}`
+          url: `https://gitlab.com/${this.owner}/${this.repo}/pipelines`,
+          message: `No GitLab CI/CD configured for ${this.owner}/${this.repo}`
         };
       }
-      Logger.log(`Error fetching GitLab pipelines: ${this.getErrorMessage(error)}`, "ERROR");
-      return this.handleFetchError(error, owner, repo, "gitlab");
+      Logger.log(`Error fetching GitLab pipelines: ${this.getErrorMessage(error, "gitlab").message}`, "ERROR");
+      return this.handleFetchError(error, "gitlab");
     }
   }
 
@@ -287,46 +295,34 @@ export class CIService {
 
   clearCache() {
     this.buildStatusCache = {};
-    Logger.log("CI Service cache cleared", "INFO");
+    Logger.log("Cleared all CI build status caches", "INFO");
   }
 
-  clearCacheForRepo(owner: string, repo: string) {
-    const repoKey = `${owner}/${repo}`;
-    delete this.buildStatusCache[repoKey];
-  }
-
-  clearCacheForBranch(branch: string, owner: string, repo: string, ciType: "github" | "gitlab") {
-    const repoKey = `${owner}/${repo}`;
-    const cacheKey = `${branch}/${ciType}`;
+  clearCacheForRepo() {
+    const repoKey = `${this.owner}/${this.repo}`;
     if (this.buildStatusCache[repoKey]) {
+      delete this.buildStatusCache[repoKey];
+      Logger.log(`Cleared cache for repo: ${repoKey}`, "INFO");
+    }
+  }
+
+  clearCacheForBranch(branch: string, ciType: "github" | "gitlab") {
+    const repoKey = `${this.owner}/${this.repo}`;
+    const cacheKey = `${branch}/${ciType}`;
+    if (this.buildStatusCache[repoKey] && this.buildStatusCache[repoKey][cacheKey]) {
       delete this.buildStatusCache[repoKey][cacheKey];
+      Logger.log(`Cleared cache for branch: ${branch} in repo: ${repoKey}`, "INFO");
     }
   }
 
   async getImmediateBuildStatus(
     ref: string,
-    owner: string,
-    repo: string,
     ciType: "github" | "gitlab",
     isTag: boolean
-  ): Promise<{status: string; url: string; message?: string}> {
-    const result = await this.getBuildStatus(ref, owner, repo, ciType, isTag, true);
-    if (!result) {
-      return {status: "unknown", url: "", message: "Unable to fetch build status"};
-    }
-
-    // Cache the result
-    const repoKey = `${owner}/${repo}`;
-    const cacheKey = `${ref}/${ciType}`;
-    if (!this.buildStatusCache[repoKey]) {
-      this.buildStatusCache[repoKey] = {};
-    }
-    this.buildStatusCache[repoKey][cacheKey] = {
-      ...result,
-      timestamp: Date.now()
-    };
-
-    return result;
+  ): Promise<BuildStatus> {
+    Logger.log(`Immediately fetching build status for ${ref} (${this.owner}/${this.repo})`, "INFO");
+    const result = await this.getBuildStatus(ref, ciType, isTag, true);
+    return result || {status: "unknown", url: "", message: "Unable to fetch immediate build status."};
   }
 
   private checkRateLimit(headers: any, ciType: "github" | "gitlab") {
@@ -361,74 +357,200 @@ export class CIService {
   }
 
   private cacheResult(
-    owner: string,
-    repo: string,
     ref: string,
     ciType: string,
-    result: {status: string; url: string; message?: string}
+    result: BuildStatus
   ) {
-    const repoKey = `${owner}/${repo}`;
-    const cacheKey = `${ref}/${ciType}`;
+    const repoKey = `${this.owner}/${this.repo}`;
     if (!this.buildStatusCache[repoKey]) {
       this.buildStatusCache[repoKey] = {};
     }
-    this.buildStatusCache[repoKey][cacheKey] = {
+    this.buildStatusCache[repoKey][`${ref}/${ciType}`] = {
       ...result,
       timestamp: Date.now()
     };
-    Logger.log(`Cached build status for ${ref} (${owner}/${repo})`, "INFO");
+    Logger.log(`Cached build status for ${ref} (${repoKey})`, "INFO");
   }
 
   private handleFetchError(
-    error: unknown,
-    owner: string,
-    repo: string,
-    ciType: string
-  ): {status: string; url: string; message?: string} {
-    let status = "unknown";
-    let message: string | undefined;
+    error: any,
+    ciType: "github" | "gitlab" | null
+  ): BuildStatus {
+    const repoKey = `${this.owner}/${this.repo}`;
+    let message = `Failed to fetch build status from ${ciType}.`;
 
     if (axios.isAxiosError(error)) {
-      if (error.response?.status === 401) {
-        status = "error";
-        message = "Authentication failed. Please check your CI token in the settings.";
-      } else if (error.response?.status === 403) {
-        status = "error";
-        message = "Access forbidden. Please check your token permissions.";
-      } else if (error.response?.status === 404) {
-        status = "error";
-        message = "Resource not found. Please check your repository path and CI configuration.";
+      const {response} = error as AxiosError;
+      if (response) {
+        const {status, data} = response;
+        message = `API request failed with status ${status}: ${JSON.stringify(data)}`;
+        if (status === 401) {
+          message = "Authentication failed. Please check your CI token.";
+        } else if (status === 403) {
+          message = "Permission denied. Please check your CI token and repository permissions.";
+          this.checkRateLimit(response.headers, ciType as "github" | "gitlab");
+        } else if (status === 404) {
+          message = "Resource not found. Please check your repository path and CI configuration.";
+        } else if (status === 429) {
+          message = "Rate limit exceeded. Please try again later.";
+        }
+      } else {
+        message = `Network error: ${error.message}`;
       }
+    } else if (error instanceof Error) {
+      message = `An unexpected error occurred: ${error.message}`;
     }
 
-    Logger.log(`Error fetching build status: ${this.getErrorMessage(error)}`, "WARNING");
-
+    Logger.log(`${message} for repository ${repoKey}`, "ERROR");
     return {
-      status: status,
-      url:
-        ciType === "github"
-          ? `https://github.com/${owner}/${repo}/actions`
-          : `${this.providers[ciType].apiUrl}/${owner}/${repo}/-/pipelines`,
-      message: message
+      status: "error",
+      url: undefined,
+      message
     };
   }
 
-  private getErrorMessage(error: unknown): string {
-    if (error instanceof Error) {
-      return error.message;
+  private getErrorMessage(
+    error: any,
+    ciType: "github" | "gitlab" | null
+  ): BuildStatus {
+    const providerName = ciType === "github" ? "GitHub" : "GitLab";
+    let message = `Failed to fetch status from ${providerName}.`;
+    let status = "error";
+
+    if (axios.isAxiosError(error)) {
+      const axiosError = error as AxiosError;
+      if (axiosError.response) {
+        const { status: httpStatus, data } = axiosError.response;
+        message = `API error from ${providerName}: ${httpStatus} - ${JSON.stringify(data)}`;
+        if (httpStatus === 401) {
+          message = `Authentication failed for ${providerName}. Please check your token.`;
+        } else if (httpStatus === 403) {
+          message = `Forbidden. Check permissions for ${providerName} token.`;
+        } else if (httpStatus === 404) {
+          status = "no_runs";
+          message = `No runs found for the specified reference in ${providerName}.`;
+        }
+      } else if (axiosError.request) {
+        message = `No response received from ${providerName}. Check your network connection and the API URL.`;
+      } else {
+        message = `Error setting up request to ${providerName}: ${axiosError.message}`;
+      }
+    } else if (error instanceof Error) {
+      message = `An unexpected error occurred: ${error.message}`;
     }
-    if (error && typeof error === "object" && "message" in error) {
-      return String(error.message);
-    }
-    return String(error);
+
+    return { status, message };
   }
 
   public isInProgressStatus(status: string): boolean {
     return this.inProgressStatuses.includes(status);
   }
 
+  public getStatusIcon(status: string): string {
+    switch (status) {
+        case "success":
+        case "completed":
+            return "$(check)";
+        case "failure":
+        case "failed":
+            return "$(x)";
+        case "cancelled":
+        case "canceled":
+            return "$(circle-slash)";
+        case "action_required":
+        case "manual":
+            return "$(alert)";
+        case "in_progress":
+        case "running":
+            return "$(sync~spin)";
+        case "loading":
+            return "$(sync~spin)";
+        case "queued":
+        case "created":
+        case "scheduled":
+            return "$(clock)";
+        case "requested":
+        case "waiting":
+        case "waiting_for_resource":
+            return "$(watch)";
+        case "pending":
+        case "preparing":
+            return "$(clock)";
+        case "neutral":
+            return "$(dash)";
+        case "skipped":
+            return "$(skip)";
+        case "stale":
+            return "$(history)";
+        case "timed_out":
+            return "$(clock)";
+        default:
+            return "$(question)";
+    }
+  }
+
   public reloadProviders() {
     this.providers = this.loadProviders();
-    Logger.log("CI Providers reloaded", "INFO");
+    this.clearCache();
+    Logger.log("CI providers reloaded.", "INFO");
+  }
+
+  public getCompareUrl(
+    from: string,
+    to: string,
+    ciType: "github" | "gitlab"
+  ): BuildStatus {
+    // Remove 'origin/' prefix from branch names for proper URL generation
+    const cleanFrom = from.replace(/^origin\//, '');
+    const cleanTo = to.replace(/^origin\//, '');
+    
+    Logger.log(`Generating compare URL for ${cleanFrom}...${cleanTo} using ${ciType}`, "INFO");
+    
+    if (ciType === "github") {
+      const url = `${this.getBaseUrl(ciType)}/compare/${cleanFrom}...${cleanTo}`;
+      return {
+        status: "success",
+        url: url,
+        message: `Compare URL for ${cleanFrom}...${cleanTo}`
+      };
+    } else if (ciType === "gitlab") {
+      const url = `${this.getBaseUrl(ciType)}/-/compare/${cleanFrom}...${cleanTo}`;
+      return {
+        status: "success",
+        url: url,
+        message: `Compare URL for ${cleanFrom}...${cleanTo}`
+      };
+    } else {
+      return {
+        status: "error",
+        url: undefined,
+        message: `Unsupported CI type: ${ciType}`
+      };
+    }
+  }
+
+  private getBaseUrl(ciType: "github" | "gitlab"): string {
+    const provider = this.providers[ciType];
+    if (!provider) {
+      Logger.log(`CI Provider ${ciType} is not configured.`, "WARNING");
+      return "";
+    }
+
+    let baseUrl = provider.apiUrl;
+    if (ciType === "github") {
+      baseUrl = "https://github.com";
+    } else if (ciType === "gitlab") {
+      // Assuming GitLab apiUrl is the base web URL
+      if (baseUrl.endsWith("/api/v4")) {
+        baseUrl = baseUrl.slice(0, -7);
+      }
+    }
+
+    if (!this.owner || !this.repo) {
+      Logger.log("Owner or repo is not provided", "WARNING");
+      return "";
+    }
+
+    return `${baseUrl}/${this.owner}/${this.repo}`;
   }
 }

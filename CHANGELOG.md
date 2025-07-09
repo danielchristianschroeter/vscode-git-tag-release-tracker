@@ -1,5 +1,35 @@
 # Changelog
 
+## [3.0.0]
+
+### Added
+
+- **Multi-Repo Dashboard**: The hover-based dashboard shows an aggregated view of every Git repository in your workspace, including branch, tag, build status, unreleased and unmerged commit counts.
+- **Hover-Based UI** with a rich Markdown table and one-click action buttons.
+- **“Compare” Action**: Quick links to GitHub/GitLab compare pages for tags or branches.
+- Loading indicator during repository detection and data fetching for instant feedback.
+- Build status indicators for both branches and tags with clickable links to the CI/CD pipeline run.
+- Version increment buttons (Major, Minor, Patch) that preserve existing prefixes/suffixes.
+- Better error handling and user feedback for CI/CD status fetching.
+- **Manual Refresh Command**: Added `Git Tag Release Tracker: Refresh Dashboard` to force a complete data refresh.
+
+### Changed
+
+- **Major Architectural Refactoring**: Core services (`GitService`, `CIService`, `StatusBarService`) are now instantiated per repository, enabling true multi-repo support and improved performance.
+- **UI Overhaul**: The status bar has been simplified to a single aggregated item; all details are now in the hover dashboard.
+- Simplified and icon-driven UI for improved readability, replacing inline text with tooltips where appropriate.
+- Reduced debounce delays for snappier UI updates when switching files or branches.
+
+### Fixed
+
+- Resolved startup error that incorrectly reported "No Git repositories found".
+- Fixed compare link generation on Windows.
+- Restored version increment buttons (Major, Minor, Patch) in the hover menu.
+- Corrected unmerged commit count calculation to compare against remote branches.
+- Improved error handling and user feedback when generating compare URLs.
+- Enhanced hover UI formatting, explanatory text, and added clarifications that version increments preserve prefixes/suffixes and when a version tag can be created.
+- Repository list is now sorted alphabetically and tag actions correctly target the repository of the currently active file.
+
 ## [2.4.5]
 
 ### Fixed

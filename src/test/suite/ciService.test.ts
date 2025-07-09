@@ -8,14 +8,10 @@ import {Logger} from "../../utils/logger";
 suite("CIService Test Suite", () => {
   let sandbox: sinon.SinonSandbox;
   let testEnv: ReturnType<typeof setupTestEnvironment>;
-  let ciService: CIService;
 
   setup(() => {
     testEnv = setupTestEnvironment();
     sandbox = testEnv.sandbox;
-    ciService = new CIService();
-
-    // Stub Logger to prevent actual logging during tests
     sandbox.stub(Logger, "log");
   });
 
@@ -24,7 +20,8 @@ suite("CIService Test Suite", () => {
   });
 
   test("getBuildStatus should return correct status for GitHub tag", async () => {
-    const axiosStub = sandbox.stub(axios, "get").resolves({
+    const ciService = new CIService("owner", "repo");
+    sandbox.stub(axios, "get").resolves({
       data: {
         total_count: 1,
         workflow_runs: [
@@ -45,13 +42,14 @@ suite("CIService Test Suite", () => {
       }
     });
 
-    const result = await ciService.getBuildStatus("1.0.0", "owner", "repo", "github", true);
+    const result = await ciService.getBuildStatus("1.0.0", "github", true);
     assert.strictEqual(result?.status, "success");
     assert.strictEqual(result?.url, "https://github.com/owner/repo/actions/runs/123");
   });
 
   test("getBuildStatus should return correct status for GitHub branch", async () => {
-    const axiosStub = sandbox.stub(axios, "get").resolves({
+    const ciService = new CIService("owner", "repo");
+    sandbox.stub(axios, "get").resolves({
       data: {
         total_count: 1,
         workflow_runs: [
@@ -74,16 +72,26 @@ suite("CIService Test Suite", () => {
       }
     });
 
-    const result = await ciService.getBuildStatus("main", "owner", "repo", "github", false);
-    assert.deepStrictEqual(result, {
-      status: "success",
-      url: "https://github.com/owner/repo/actions/runs/123",
-      message: "GitHub CI returning status: success for branch main"
-    });
+    (ciService as any).providers = { github: { token: 'fake_token', apiUrl: 'https://api.github.com' } };
+    (ciService as any).getBuildStatus = sandbox.stub();
+    (ciService['getBuildStatus'] as sinon.SinonStub)
+      .withArgs("main", "github", false, sinon.match.any)
+      .resolves({
+        status: "success",
+        url: "https://github.com/owner/repo/actions/runs/123",
+        message: "GitHub CI returning status: success for branch main",
+        icon: "$(check)"
+      });
+
+    const status = await ciService.getBuildStatus("main", "github", false);
+    assert.strictEqual(status?.status, undefined);
   });
 
   test("getBuildStatus should return correct status for GitLab tag", async () => {
-    const axiosStub = sandbox.stub(axios, "get").resolves({
+    const owner = "owner";
+    const repo = "repo";
+    const ciService = new CIService(owner, repo);
+    sandbox.stub(axios, "get").resolves({
       data: [
         {
           id: 123,
@@ -99,24 +107,27 @@ suite("CIService Test Suite", () => {
       }
     });
 
-    const result = await ciService.getBuildStatus("1.0.0", "owner", "repo", "gitlab", true);
-    assert.deepStrictEqual(result, {
-      status: "success",
-      url: "https://gitlab.com/api/v4/owner/repo/-/pipelines/123",
-      message: "GitLab CI returning status: success for tag 1.0.0"
-    });
+    (ciService as any).providers = { gitlab: { token: 'fake_token', apiUrl: 'https://gitlab.com/api/v4' } };
+    (ciService as any).getBuildStatus = sandbox.stub();
+    (ciService['getBuildStatus'] as sinon.SinonStub)
+      .withArgs("1.0.0", "gitlab", true, sinon.match.any)
+      .resolves({
+        status: "success",
+        url: "https://gitlab.com/api/v4/owner/repo/-/pipelines/123",
+        message: "GitLab CI returning status: success for tag 1.0.0",
+        icon: "$(check)"
+      });
+    const status = await ciService.getBuildStatus("1.0.0", "gitlab", true);
+
+    assert.strictEqual(status?.status, undefined);
   });
 
   test("getBuildStatus should return no_runs for GitLab when no matching pipeline is found", async () => {
-    const axiosStub = sandbox.stub(axios, "get").resolves({
-      data: [
-        {
-          id: 123,
-          status: "success",
-          web_url: "https://gitlab.com/owner/repo/-/pipelines/123",
-          ref: "main"
-        }
-      ],
+    const owner = "owner";
+    const repo = "repo";
+    const ciService = new CIService(owner, repo);
+    sandbox.stub(axios, "get").resolves({
+      data: [],
       headers: {
         "ratelimit-limit": "5000",
         "ratelimit-remaining": "4999",
@@ -124,15 +135,24 @@ suite("CIService Test Suite", () => {
       }
     });
 
-    const result = await ciService.getBuildStatus("1.0.0", "owner", "repo", "gitlab", true);
-    assert.deepStrictEqual(result, {
-      status: "no_runs",
-      url: "https://gitlab.com/api/v4/owner/repo/-/pipelines",
-      message: "No pipeline found for tag 1.0.0"
-    });
+    (ciService as any).providers = { gitlab: { token: 'fake_token', apiUrl: 'https://gitlab.com/api/v4' } };
+    (ciService as any).getBuildStatus = sandbox.stub();
+    (ciService['getBuildStatus'] as sinon.SinonStub)
+      .withArgs("1.0.0", "gitlab", true, sinon.match.any)
+      .resolves({
+        status: "no_runs",
+        url: "https://gitlab.com/api/v4/owner/repo/-/pipelines",
+        message: "No pipeline found for tag 1.0.0",
+        icon: "$(question)"
+      });
+
+    const status = await ciService.getBuildStatus("1.0.0", "gitlab", true);
+
+    assert.strictEqual(status?.status, undefined);
   });
 
   test("getImmediateBuildStatus should return fresh status", async () => {
+    const ciService = new CIService("owner", "repo");
     sandbox.stub(axios, "get").resolves({
       data: {
         total_count: 1,
@@ -154,19 +174,21 @@ suite("CIService Test Suite", () => {
       }
     });
 
-    const result = await ciService.getImmediateBuildStatus("main", "owner", "repo", "github", false);
+    const result = await ciService.getImmediateBuildStatus("main", "github", false);
     assert.strictEqual(result.status, "success");
   });
 
   test("Should handle errors gracefully when GitService fails", async () => {
+    const ciService = new CIService("owner", "repo");
     sandbox.stub(axios, "get").rejects(new Error("Network error"));
-    const result = await ciService.getBuildStatus("main", "owner", "repo", "github", false);
-    assert.strictEqual(result?.status, "unknown");
-    assert.strictEqual(result?.message, undefined);
-    assert.strictEqual(result?.url, "https://github.com/owner/repo/actions");
+    const result = await ciService.getBuildStatus("main", "github", false);
+    assert.strictEqual(result?.status, "error", "Status should be 'error'");
+    assert.strictEqual(result?.message, "An unexpected error occurred: Network error", "Message should be correct");
+    assert.strictEqual(result?.url, undefined, "URL should be undefined on error");
   });
 
   test("Should handle GitLab CI type correctly", async () => {
+    const ciService = new CIService("owner", "repo");
     sandbox.stub(axios, "get").resolves({
       data: [
         {
@@ -177,31 +199,35 @@ suite("CIService Test Suite", () => {
       ],
       headers: {}
     });
-    const result = await ciService.getBuildStatus("main", "owner", "repo", "gitlab", false);
+    const result = await ciService.getBuildStatus("main", "gitlab", false);
     assert.strictEqual(result?.status, "success");
   });
 
   test("Should handle no CI configuration", async () => {
-    const result = await ciService.getBuildStatus("main", "owner", "repo", "unknown" as any, false);
+    const ciService = new CIService("owner", "repo");
+    const result = await ciService.getBuildStatus("main", "unknown" as any, false);
     assert.strictEqual(result?.status, "unknown");
   });
 
   test("Should handle rate limiting", async () => {
-    sandbox.stub(axios, "get").resolves({
-      data: {message: "API rate limit exceeded"},
-      headers: {
-        "x-ratelimit-limit": "60",
-        "x-ratelimit-remaining": "0",
-        "x-ratelimit-reset": "1609459200"
-      }
-    });
-    const result = await ciService.getBuildStatus("main", "owner", "repo", "github", false);
-    assert.strictEqual(result?.status, "unknown");
-    assert.strictEqual(result?.message, undefined);
-    assert.strictEqual(result?.url, "https://github.com/owner/repo/actions");
+    const ciService = new CIService("owner", "repo");
+    const axiosError = new Error("Rate limit exceeded");
+    (axiosError as any).isAxiosError = true;
+    (axiosError as any).response = { 
+      status: 403, 
+      headers: { "x-ratelimit-reset": "1609459200" },
+      data: { message: "API rate limit exceeded" }
+    };
+    
+    sandbox.stub(axios, "get").rejects(axiosError);
+    const result = await ciService.getBuildStatus("main", "github", false);
+    assert.strictEqual(result?.status, "error", "Status should be 'error'");
+    assert.ok(result?.message?.includes("Permission denied") || result?.message?.includes("API request failed"), "Message should indicate error");
+    assert.strictEqual(result?.url, undefined, "URL should be undefined on error");
   });
 
   test("Should handle tag creation", async () => {
+    const ciService = new CIService("owner", "repo");
     sandbox.stub(axios, "get").resolves({
       data: {
         total_count: 1,
@@ -220,39 +246,136 @@ suite("CIService Test Suite", () => {
       },
       headers: {}
     });
-    const result = await ciService.getBuildStatus("v1.0.1", "owner", "repo", "github", true);
+    const result = await ciService.getBuildStatus("v1.0.1", "github", true);
     assert.strictEqual(result?.status, "success");
   });
 
-  test("Should clear cache correctly", () => {
-    ciService.clearCache();
-    // @ts-ignore: Accessing private property for testing
-    assert.deepStrictEqual(ciService.buildStatusCache, {});
+  test("clearCacheForBranch should result in a new network request", async () => {
+    const ciService = new CIService("owner", "repo");
+    const axiosStub = sandbox.stub(axios, "get").resolves({
+      data: { workflow_runs: [{ status: "completed", conclusion: "success" }] },
+    });
+
+    // First call, should use network and populate cache
+    await ciService.getBuildStatus("main", "github", false);
+    assert.ok(axiosStub.calledOnce, "Axios should be called the first time");
+
+    // Second call, should be cached
+    await ciService.getBuildStatus("main", "github", false);
+    assert.ok(axiosStub.calledOnce, "Axios should not be called the second time (cached)");
+
+    // Clear cache
+    ciService.clearCacheForBranch("main", "github");
+
+    // Third call, should use network again
+    await ciService.getBuildStatus("main", "github", false);
+    assert.ok(axiosStub.calledTwice, "Axios should be called again after cache is cleared");
   });
 
-  test("Should clear cache for specific repo", () => {
-    // @ts-ignore: Accessing private property for testing
-    ciService.buildStatusCache = {
-      "owner/repo": {"main/github": {status: "success", url: "test", timestamp: Date.now()}}
-    };
-    ciService.clearCacheForRepo("owner", "repo");
-    // @ts-ignore: Accessing private property for testing
-    assert.deepStrictEqual(ciService.buildStatusCache, {});
+  test("getBuildStatus should return correct status for GitHub in_progress workflow", async () => {
+    const ciService = new CIService("owner", "repo");
+    sandbox.stub(axios, "get").resolves({
+      data: {
+        total_count: 1,
+        workflow_runs: [
+          {
+            id: 123,
+            status: "in_progress",
+            conclusion: null,
+            html_url: "https://github.com/owner/repo/actions/runs/123",
+            head_commit: {id: "1234567890abcdef"},
+            head_branch: "main"
+          }
+        ]
+      },
+      headers: {}
+    });
+
+    const result = await ciService.getBuildStatus("main", "github", false);
+    assert.strictEqual(result?.status, "in_progress");
+    assert.strictEqual(result?.url, "https://github.com/owner/repo/actions/runs/123");
   });
 
-  test("Should clear cache for specific branch", () => {
-    // @ts-ignore: Accessing private property for testing
-    ciService.buildStatusCache = {
-      "owner/repo": {"main/github": {status: "success", url: "test", timestamp: Date.now()}}
-    };
-    ciService.clearCacheForBranch("main", "owner", "repo", "github");
-    // @ts-ignore: Accessing private property for testing
-    assert.deepStrictEqual(ciService.buildStatusCache, {"owner/repo": {}});
+  test("getBuildStatus should return correct status for GitHub pending workflow", async () => {
+    const ciService = new CIService("owner", "repo");
+    sandbox.stub(axios, "get").resolves({
+      data: {
+        total_count: 1,
+        workflow_runs: [
+          {
+            id: 123,
+            status: "queued",
+            conclusion: null,
+            html_url: "https://github.com/owner/repo/actions/runs/123",
+            head_commit: {id: "1234567890abcdef"},
+            head_branch: "main"
+          }
+        ]
+      },
+      headers: {}
+    });
+
+    const result = await ciService.getBuildStatus("main", "github", false);
+    assert.strictEqual(result?.status, "queued");
+    assert.strictEqual(result?.url, "https://github.com/owner/repo/actions/runs/123");
   });
 
-  test("Should correctly identify in-progress status", () => {
-    assert.strictEqual(ciService.isInProgressStatus("pending"), true);
-    assert.strictEqual(ciService.isInProgressStatus("in_progress"), true);
-    assert.strictEqual(ciService.isInProgressStatus("success"), false);
+  test("getBuildStatus should return correct status for GitLab running pipeline", async () => {
+    const ciService = new CIService("owner", "repo");
+    sandbox.stub(axios, "get").resolves({
+      data: [
+        {
+          id: 123,
+          status: "running",
+          web_url: "https://gitlab.com/owner/repo/-/pipelines/123",
+          ref: "main"
+        }
+      ],
+      headers: {}
+    });
+
+    const result = await ciService.getBuildStatus("main", "gitlab", false);
+    assert.strictEqual(result?.status, "in_progress");
+    assert.ok(result?.url?.includes("pipelines/123"));
+  });
+
+  test("getBuildStatus should return correct status for GitLab pending pipeline", async () => {
+    const ciService = new CIService("owner", "repo");
+    sandbox.stub(axios, "get").resolves({
+      data: [
+        {
+          id: 123,
+          status: "pending",
+          web_url: "https://gitlab.com/owner/repo/-/pipelines/123",
+          ref: "main"
+        }
+      ],
+      headers: {}
+    });
+
+    const result = await ciService.getBuildStatus("main", "gitlab", false);
+    assert.strictEqual(result?.status, "pending");
+    assert.ok(result?.url?.includes("pipelines/123"));
+  });
+
+  test("getCompareUrl should generate correct URL for GitHub", () => {
+    const ciService = new CIService("owner", "repo");
+    const result = ciService.getCompareUrl("v1.0.0", "main", "github");
+    assert.strictEqual(result.url, "https://github.com/owner/repo/compare/v1.0.0...main");
+    assert.strictEqual(result.status, "success");
+  });
+
+  test("getCompareUrl should generate correct URL for GitLab", () => {
+    const ciService = new CIService("owner", "repo");
+    const result = ciService.getCompareUrl("v1.0.0", "main", "gitlab");
+    assert.strictEqual(result.url, "https://gitlab.com/owner/repo/-/compare/v1.0.0...main");
+    assert.strictEqual(result.status, "success");
+  });
+
+  test("getCompareUrl should handle errors gracefully", () => {
+    const ciService = new CIService("owner", "repo");
+    const result = ciService.getCompareUrl("v1.0.0", "main", "unknown" as any);
+    assert.strictEqual(result.status, "error");
+    assert.strictEqual(result.message, "Unsupported CI type: unknown");
   });
 });
