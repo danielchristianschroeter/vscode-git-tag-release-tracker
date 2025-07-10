@@ -4,6 +4,7 @@ import {createTag} from "./commands/createTag";
 import {pushAndCheckBuild} from "./commands/pushAndCheckBuild";
 import {createStatusBarUpdater} from "./utils/statusBarUpdater";
 import {Logger} from "./utils/logger";
+import {initializeServices} from "./servicesManager";
 import { RepositoryServices } from "./globals";
 import path from "path";
 
@@ -245,6 +246,9 @@ export function registerCommands() {
       });
     },
     "extension.refreshDashboard": async () => {
+      // Ensure any newly added repositories are detected before refreshing the UI
+      await initializeServices();
+
       if (globals.statusBarService) {
         await globals.statusBarService.reloadEverything(true);
         vscode.window.showInformationMessage("Git Tag Release Tracker dashboard refreshed.");

@@ -8,14 +8,37 @@ import {createStatusBarUpdater} from "./utils/statusBarUpdater";
 import { WorkspaceService } from "./services/workspaceService";
 import * as path from "path";
 
+/**
+ * Detect Git repositories in the current VS Code workspace and make sure every
+ * repository has its own GitService / CIService instance registered in the
+ * global repositoryServices map.
+ *
+ * This function is SAFE to call multiple times – it will:
+ *   1. Add services for any newly-detected repositories that are not yet in
+ *      the map.
+ *   2. Dispose and remove services that belong to repositories no longer
+ *      present in the workspace.
+ *
+ * Status-bar data/caches are automatically refreshed by callers *after* this
+ * function completes, therefore we do not trigger UI updates here directly.
+ */
 export async function initializeServices() {
-  if (globals.isInitialized) {
-    return; // Prevent reinitialization
-  }
 
   const workspaceService = new WorkspaceService();
   const repoRoots = await workspaceService.getGitRepositoryRoots();
-  const uniqueRepoRoots = [...new Set(repoRoots)]; // Remove duplicates
+  const uniqueRepoRoots = [...new Set(repoRoots)]; // De-duplicate
+
+  // 1) Remove repositories that no longer exist in workspace -----------------
+  for (const existingRoot of Array.from(globals.repositoryServices.keys())) {
+    if (!uniqueRepoRoots.includes(existingRoot)) {
+      const services = globals.repositoryServices.get(existingRoot);
+      if (services) {
+        services.gitService.dispose();
+      }
+      globals.repositoryServices.delete(existingRoot);
+      Logger.log(`Removed services for closed repository: ${existingRoot}`, "INFO");
+    }
+  }
 
   if (uniqueRepoRoots.length === 0) {
     Logger.log("No Git repositories found in this workspace.", "WARNING");
@@ -24,38 +47,43 @@ export async function initializeServices() {
 
   const initializedRoots: string[] = [];
 
+  // 2) Add new repositories ---------------------------------------------------
   for (const root of uniqueRepoRoots) {
-    // Check if this root is a subdirectory of an already initialized repo
-    if (initializedRoots.some(initializedRoot => root.startsWith(initializedRoot + path.sep))) {
-        continue;
+    // Skip roots we already have services for
+    if (globals.repositoryServices.has(root)) {
+      continue;
     }
-    
+
+    // Skip sub-repositories inside already managed super-repositories
+    if (initializedRoots.some(initializedRoot => root.startsWith(initializedRoot + path.sep))) {
+      continue;
+    }
+
     const gitService = new GitService(globals.context!, root);
     const gitInitialized = await gitService.initialize();
 
-    if (gitInitialized) {
-      initializedRoots.push(root); // Add to our list of initialized roots
-      const ownerAndRepo = await gitService.getOwnerAndRepo();
-      if (ownerAndRepo) {
-        const ciService = new CIService(ownerAndRepo.owner, ownerAndRepo.repo);
-        globals.repositoryServices.set(root, { gitService, ciService });
-        globals.context!.subscriptions.push(gitService);
-      } else {
-        Logger.log(`Could not determine owner and repo for ${root}. CI services will be unavailable.`, "WARNING");
-        // Still add gitService even if owner/repo can't be found for git-only features.
-        globals.repositoryServices.set(root, { gitService, ciService: null as any });
-        globals.context!.subscriptions.push(gitService);
-      }
-    } else {
+    if (!gitInitialized) {
       Logger.log(`GitService failed to initialize for ${root}.`, "WARNING");
+      continue;
     }
+
+    initializedRoots.push(root);
+
+    let ciService: CIService | null = null;
+    const ownerAndRepo = await gitService.getOwnerAndRepo();
+    if (ownerAndRepo) {
+      ciService = new CIService(ownerAndRepo.owner, ownerAndRepo.repo);
+    } else {
+      Logger.log(`Could not determine owner and repo for ${root}. CI services will be unavailable.`, "WARNING");
+    }
+
+    globals.repositoryServices.set(root, { gitService, ciService: ciService as any });
+    globals.context!.subscriptions.push(gitService);
+    Logger.log(`Added services for new repository: ${root}`, "INFO");
   }
 
-  if (globals.repositoryServices.size > 0) {
-    // setupStatusBarService(); // This will be refactored later
-    globals.isInitialized = true;
-    Logger.log(`Initialized services for ${globals.repositoryServices.size} repositories.`, "INFO");
-  }
+  globals.isInitialized = true; // Mark that at least one initialization has occurred
+  Logger.log(`Repository service count: ${globals.repositoryServices.size}`, "INFO");
 }
 
 function setupStatusBarService() {

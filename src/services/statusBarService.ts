@@ -1,11 +1,11 @@
 import * as vscode from "vscode";
-import { GitService, TagResult } from "./gitService";
-import { CIService } from "./ciService";
-import { Logger } from "../utils/logger";
-import { debounce } from "../utils/debounce";
-import { RepositoryServices } from "../globals";
+import {GitService, TagResult} from "./gitService";
+import {CIService} from "./ciService";
+import {Logger} from "../utils/logger";
+import {debounce} from "../utils/debounce";
+import {RepositoryServices} from "../globals";
 import path from "path";
-import { AggregatedData, MultiRepoService } from "./multiRepoService";
+import {AggregatedData, MultiRepoService} from "./multiRepoService";
 
 export class StatusBarService {
   private aggregatedStatusItem: vscode.StatusBarItem;
@@ -66,14 +66,14 @@ export class StatusBarService {
 
   public async updateEverything(forceRefresh: boolean = false): Promise<void> {
     Logger.log("Updating everything for all repositories...", "INFO");
-    
+
     if (forceRefresh) {
       this.showLoadingIndicator();
     }
-    
+
     const aggregatedData = await this.multiRepoService.getAggregatedData(forceRefresh);
     this.lastAggregatedData = aggregatedData;
-    
+
     this.updateAggregatedHover(aggregatedData);
 
     // Mark loading completed before updating visible text
@@ -88,7 +88,7 @@ export class StatusBarService {
   private updateActiveRepoStatusItems() {
     if (!this.activeRepoRoot) {
       this.branchBuildStatusItem.hide();
-    this.tagBuildStatusItem.hide();
+      this.tagBuildStatusItem.hide();
       return;
     }
 
@@ -101,7 +101,7 @@ export class StatusBarService {
 
     // Update branch build status item
     if (repoData.branchBuildStatus && repoData.currentBranch) {
-      const cleanBranchName = repoData.currentBranch.replace(/^origin\//, '');
+      const cleanBranchName = repoData.currentBranch.replace(/^origin\//, "");
       this.branchBuildStatusItem.text = `${repoData.branchBuildStatus.icon} ${cleanBranchName}`;
       this.branchBuildStatusItem.tooltip = `Branch: ${repoData.currentBranch}\nStatus: ${repoData.branchBuildStatus.status}`;
       this.branchBuildStatusItem.command = {
@@ -110,18 +110,18 @@ export class StatusBarService {
         arguments: [repoData.branchBuildStatus.url]
       };
       this.branchBuildStatusItem.show();
-      } else {
+    } else {
       this.branchBuildStatusItem.hide();
     }
 
     // Update tag build status item
     if (repoData.tagBuildStatus) {
-      this.tagBuildStatusItem.text = `${repoData.tagBuildStatus.icon} Tag: ${repoData.latestTag?.latest}`;
+      this.tagBuildStatusItem.text = `${repoData.tagBuildStatus.icon} ${repoData.latestTag?.latest}`;
       this.tagBuildStatusItem.tooltip = `Tag: ${repoData.latestTag?.latest}\nStatus: ${repoData.tagBuildStatus.status}`;
       this.tagBuildStatusItem.command = {
-          title: "Open Tag Build Status",
-          command: "extension.openTagBuildStatus",
-          arguments: [repoData.tagBuildStatus.url]
+        title: "Open Tag Build Status",
+        command: "extension.openTagBuildStatus",
+        arguments: [repoData.tagBuildStatus.url]
       };
       this.tagBuildStatusItem.show();
     } else {
@@ -130,7 +130,7 @@ export class StatusBarService {
   }
 
   private updateAggregatedHover(aggregatedData: AggregatedData) {
-    const { repoData } = aggregatedData;
+    const {repoData} = aggregatedData;
 
     const hoverMessage = new vscode.MarkdownString("### Git Tag Release Tracker\n\n");
     hoverMessage.isTrusted = true;
@@ -145,56 +145,74 @@ export class StatusBarService {
         return aName.localeCompare(bName);
       });
 
-      hoverMessage.appendMarkdown("| Repository | Branch | Latest Tag | Build Status | Unreleased | Unmerged | Actions |\n");
-      hoverMessage.appendMarkdown("|:----------|:-------|:-----------|:-----------:|:---------:|:--------:|:-------:|\n");
+      hoverMessage.appendMarkdown(
+        "| Repository | Branch | Latest Tag | Build Status | Unreleased | Unmerged | Actions |\n"
+      );
+      hoverMessage.appendMarkdown(
+        "|:----------|:-------|:-----------|:-----------:|:---------:|:--------:|:-------:|\n"
+      );
 
       for (const data of sortedRepoData) {
         const repoName = data.repoRoot.split(path.sep).pop() || data.repoRoot;
         const cleanCurrentBranch = (data.currentBranch || "").replace(/^origin\//, "");
         const cleanDefaultBranch = (data.defaultBranch || "").replace(/^origin\//, "");
         const isDefaultBranch = cleanCurrentBranch === cleanDefaultBranch;
-        const branchText = isDefaultBranch
-          ? `${cleanDefaultBranch}`
-          : `${cleanCurrentBranch} → ${cleanDefaultBranch}`;
+        const branchText = isDefaultBranch ? `${cleanDefaultBranch}` : `${cleanCurrentBranch} → ${cleanDefaultBranch}`;
         const latestTagText = data.latestTag?.latest ? `${data.latestTag.latest}` : "-";
-        
+
         let buildStatusText = "";
         if (isDefaultBranch && data.tagBuildStatus && data.latestTag?.latest) {
           const statusIcon = this.getBuildStatusIcon(data.tagBuildStatus.status);
           const tooltipText = `Tag ${data.latestTag.latest} build: ${data.tagBuildStatus.status}`;
-          buildStatusText = data.tagBuildStatus.url ? `[${statusIcon}](${data.tagBuildStatus.url} "${tooltipText}")` : statusIcon;
+          buildStatusText = data.tagBuildStatus.url
+            ? `[${statusIcon}](${data.tagBuildStatus.url} "${tooltipText}")`
+            : statusIcon;
         } else if (data.branchBuildStatus) {
           const statusIcon = this.getBuildStatusIcon(data.branchBuildStatus.status);
           const tooltipText = `Branch ${cleanCurrentBranch} build: ${data.branchBuildStatus.status}`;
-          buildStatusText = data.branchBuildStatus.url ? `[${statusIcon}](${data.branchBuildStatus.url} "${tooltipText}")` : statusIcon;
+          buildStatusText = data.branchBuildStatus.url
+            ? `[${statusIcon}](${data.branchBuildStatus.url} "${tooltipText}")`
+            : statusIcon;
         } else {
           buildStatusText = "$(circle)";
         }
-        
+
         let actionsText = "";
         if (data.hasRemote) {
           const repoRootPath = data.repoRoot;
           if (isDefaultBranch) {
-            actionsText = `[$(git-compare)](command:extension.openCompareLink?${encodeURIComponent(JSON.stringify([repoRootPath, "tag"]))} "Compare changes between latest tag and current branch")`;
+            actionsText = `[$(git-compare)](command:extension.openCompareLink?${encodeURIComponent(
+              JSON.stringify([repoRootPath, "tag"])
+            )} "Compare changes between latest tag and current branch")`;
           } else {
-            actionsText = `[$(git-compare)](command:extension.openCompareLink?${encodeURIComponent(JSON.stringify([repoRootPath, cleanDefaultBranch, cleanCurrentBranch]))} "Compare changes between ${cleanDefaultBranch} and ${cleanCurrentBranch}")`;
+            actionsText = `[$(git-compare)](command:extension.openCompareLink?${encodeURIComponent(
+              JSON.stringify([repoRootPath, cleanDefaultBranch, cleanCurrentBranch])
+            )} "Compare changes between ${cleanDefaultBranch} and ${cleanCurrentBranch}")`;
           }
-          
+
           if (isDefaultBranch && data.unreleasedCount > 0 && data.latestTag?.latest) {
-            const currentVersion = data.latestTag.latest.replace(/^v/, '');
-            const [major, minor, patch] = currentVersion.split('.').map(Number);
-            const hasPrefix = data.latestTag.latest.startsWith('v');
-            const prefix = hasPrefix ? 'v' : '';
-            
+            const currentVersion = data.latestTag.latest.replace(/^v/, "");
+            const [major, minor, patch] = currentVersion.split(".").map(Number);
+            const hasPrefix = data.latestTag.latest.startsWith("v");
+            const prefix = hasPrefix ? "v" : "";
+
             const nextMajor = `${prefix}${major + 1}.0.0`;
             const nextMinor = `${prefix}${major}.${minor + 1}.0`;
             const nextPatch = `${prefix}${major}.${minor}.${patch + 1}`;
 
-            actionsText += ` [$(arrow-up)M](command:extension.createMajorTag?${encodeURIComponent(JSON.stringify([repoRootPath]))} "Increase Major Version: ${nextMajor}")`;
-            actionsText += ` [$(arrow-up)m](command:extension.createMinorTag?${encodeURIComponent(JSON.stringify([repoRootPath]))} "Increase Minor Version: ${nextMinor}")`;
-            actionsText += ` [$(arrow-up)p](command:extension.createPatchTag?${encodeURIComponent(JSON.stringify([repoRootPath]))} "Increase Patch Version: ${nextPatch}")`;
+            actionsText += ` [$(arrow-up)M](command:extension.createMajorTag?${encodeURIComponent(
+              JSON.stringify([repoRootPath])
+            )} "Increase Major Version: ${nextMajor}")`;
+            actionsText += ` [$(arrow-up)m](command:extension.createMinorTag?${encodeURIComponent(
+              JSON.stringify([repoRootPath])
+            )} "Increase Minor Version: ${nextMinor}")`;
+            actionsText += ` [$(arrow-up)p](command:extension.createPatchTag?${encodeURIComponent(
+              JSON.stringify([repoRootPath])
+            )} "Increase Patch Version: ${nextPatch}")`;
           } else if (isDefaultBranch && !data.latestTag?.latest) {
-            actionsText += ` [$(star-full)](command:extension.createInitialTag?${encodeURIComponent(JSON.stringify([repoRootPath]))} "Create Initial Version: 1.0.0")`;
+            actionsText += ` [$(star-full)](command:extension.createInitialTag?${encodeURIComponent(
+              JSON.stringify([repoRootPath])
+            )} "Create Initial Version: 1.0.0")`;
           } else if (!isDefaultBranch) {
             actionsText += ` [$(info)](command:noop "Switch to ${cleanDefaultBranch} to create tags")`;
           }
@@ -202,7 +220,9 @@ export class StatusBarService {
           actionsText = "$(error) No remote";
         }
 
-        hoverMessage.appendMarkdown(`| ${repoName} | ${branchText} | ${latestTagText} | ${buildStatusText} | ${data.unreleasedCount} | ${data.unmergedCount} | ${actionsText} |\n`);
+        hoverMessage.appendMarkdown(
+          `| ${repoName} | ${branchText} | ${latestTagText} | ${buildStatusText} | ${data.unreleasedCount} | ${data.unmergedCount} | ${actionsText} |\n`
+        );
       }
 
       hoverMessage.appendMarkdown("\n\n**Legend:**\n");
@@ -211,7 +231,9 @@ export class StatusBarService {
       hoverMessage.appendMarkdown("- **Build Status**: CI/CD build status for the current branch or tag\n");
       hoverMessage.appendMarkdown("- **Actions**: \n");
       hoverMessage.appendMarkdown("  - $(git-compare): Compare changes between branches or tags\n");
-      hoverMessage.appendMarkdown("  - $(arrow-up)M/m/p: Create Major/Minor/Patch version (preserves prefixes/suffixes)\n");
+      hoverMessage.appendMarkdown(
+        "  - $(arrow-up)M/m/p: Create Major/Minor/Patch version (preserves prefixes/suffixes)\n"
+      );
       hoverMessage.appendMarkdown("  - $(star-full): Create initial version (1.0.0)\n");
     }
 
@@ -233,7 +255,7 @@ export class StatusBarService {
     if (activeRepoData) {
       this.aggregatedStatusItem.text = `$(git-commit) ${activeRepoData.unreleasedCount} unreleased, ${activeRepoData.unmergedCount} unmerged`;
     } else {
-      const { totalUnreleasedCommits, totalUnmergedCommits } = this.lastAggregatedData;
+      const {totalUnreleasedCommits, totalUnmergedCommits} = this.lastAggregatedData;
       this.aggregatedStatusItem.text = `$(git-commit) ${totalUnreleasedCommits} unreleased, ${totalUnmergedCommits} unmerged`;
     }
   }
@@ -242,7 +264,7 @@ export class StatusBarService {
     if (!status) {
       return "$(circle)";
     }
-    
+
     switch (status) {
       case "success":
       case "completed":
@@ -295,11 +317,11 @@ export class StatusBarService {
   private handleActiveEditorChange() {
     const editor = vscode.window.activeTextEditor;
     if (editor) {
-        const resource = editor.document.uri;
-        const repoRoot = Array.from(this.repositoryServices.keys()).find(root => resource.fsPath.startsWith(root));
-        this.activeRepoRoot = repoRoot;
+      const resource = editor.document.uri;
+      const repoRoot = Array.from(this.repositoryServices.keys()).find(root => resource.fsPath.startsWith(root));
+      this.activeRepoRoot = repoRoot;
     } else {
-        this.activeRepoRoot = undefined;
+      this.activeRepoRoot = undefined;
     }
     this.updateActiveRepoStatusItems();
     this.updateAggregatedStatusText();
@@ -312,10 +334,10 @@ export class StatusBarService {
   public async getCompareUrlForRepo(repoRoot: string, base?: string, head?: string): Promise<string | undefined> {
     const services = this.repositoryServices.get(repoRoot);
     if (!services) {
-        return undefined;
+      return undefined;
     }
 
-    const { gitService } = services;
+    const {gitService} = services;
     const [ownerAndRepo, latestTag, defaultBranch, currentBranch] = await Promise.all([
       gitService.getOwnerAndRepo(),
       gitService.getLatestTag(),
@@ -326,23 +348,23 @@ export class StatusBarService {
     if (!ownerAndRepo || !defaultBranch) {
       return undefined;
     }
-    
+
     const baseUrl = await gitService.getBaseUrl();
     if (!baseUrl) {
       return undefined;
     }
 
-    if (base === 'tag') {
-        base = latestTag?.latest || await gitService.getInitialCommit() || defaultBranch;
-        head = defaultBranch;
+    if (base === "tag") {
+      base = latestTag?.latest || (await gitService.getInitialCommit()) || defaultBranch;
+      head = defaultBranch;
     } else if (!base || !head) {
-        base = defaultBranch;
-        head = currentBranch || '';
+      base = defaultBranch;
+      head = currentBranch || "";
     }
 
     return `${baseUrl}/${ownerAndRepo.owner}/${ownerAndRepo.repo}/compare/${base}...${head}`;
   }
-  
+
   public getMultiRepoService(): MultiRepoService {
     return this.multiRepoService;
   }

@@ -68,6 +68,14 @@ export async function activate(context: vscode.ExtensionContext) {
         debouncedInitialize();
     }));
 
+    // Re-initialize when workspace folders are added/removed
+    context.subscriptions.push(
+      vscode.workspace.onDidChangeWorkspaceFolders(() => {
+        Logger.log("Workspace folders changed, re-initializing services.", "INFO");
+        debouncedInitialize();
+      })
+    );
+
     // Update on save for git files
     const updateOnSave = vscode.workspace.onDidSaveTextDocument(async (document) => {
       if (document.fileName.includes(".git") && globals.statusBarService) {
