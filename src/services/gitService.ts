@@ -5,7 +5,7 @@ import {EventEmitter} from "vscode";
 import {Logger} from "../utils/logger";
 import simpleGit, {SimpleGit, SimpleGitOptions} from "simple-git";
 import {debounce} from "../utils/debounce";
-import {StatusBarService} from "./statusBarService";
+import {globals} from "../globals";
 
 export interface TagResult {
   latest: string | null;
@@ -574,6 +574,11 @@ export class GitService {
 
     // Force a refresh of tags and other data
     this.clearCaches();
+
+    // Notify the dashboard (via MultiRepoService) that the repository state
+    // has changed so that unreleased / unmerged commit counts refresh
+    // automatically after a commit.
+    globals.statusBarService?.getMultiRepoService()?.invalidateCacheForRepo(this.repoRoot);
   }
 
   private async isGitRepository(repoPath: string): Promise<boolean> {

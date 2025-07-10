@@ -11,6 +11,7 @@ export class StatusBarService {
   private aggregatedStatusItem: vscode.StatusBarItem;
   private branchBuildStatusItem: vscode.StatusBarItem;
   private tagBuildStatusItem: vscode.StatusBarItem;
+  private refreshStatusItem: vscode.StatusBarItem;
   private debouncedUpdateEverything = debounce(async (forceRefresh: boolean = false) => {
     await this.updateEverything(forceRefresh);
   }, 2000);
@@ -25,6 +26,8 @@ export class StatusBarService {
     private readonly repositoryServices: Map<string, RepositoryServices>
   ) {
     this.multiRepoService = new MultiRepoService(repositoryServices);
+    // Higher priority numbers appear more to the left when using Left alignment.
+    this.refreshStatusItem = this.createStatusBarItem(vscode.StatusBarAlignment.Left, 110);
     this.aggregatedStatusItem = this.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
     this.branchBuildStatusItem = this.createStatusBarItem(vscode.StatusBarAlignment.Left, 99);
     this.tagBuildStatusItem = this.createStatusBarItem(vscode.StatusBarAlignment.Left, 98);
@@ -34,6 +37,12 @@ export class StatusBarService {
 
     // Show loading indicator immediately
     this.showLoadingIndicator();
+
+    // Setup refresh button appearance
+    this.refreshStatusItem.text = "$(refresh)";
+    this.refreshStatusItem.tooltip = "Refresh Git Tag Release Tracker dashboard";
+    this.refreshStatusItem.command = "extension.refreshDashboard";
+    this.refreshStatusItem.show();
 
     // Then update everything
     this.updateEverything(true);
@@ -56,6 +65,7 @@ export class StatusBarService {
     this.aggregatedStatusItem.hide();
     this.branchBuildStatusItem.hide();
     this.tagBuildStatusItem.hide();
+    this.refreshStatusItem.hide();
   }
 
   public async reloadEverything(forceRefresh: boolean = true) {
@@ -311,6 +321,7 @@ export class StatusBarService {
     this.aggregatedStatusItem.hide();
     this.branchBuildStatusItem.hide();
     this.tagBuildStatusItem.hide();
+    this.refreshStatusItem.hide();
     Logger.log("All status bar items cleared", "INFO");
   }
 

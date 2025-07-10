@@ -83,8 +83,8 @@ export class MultiRepoService {
                     data.tagBuildStatus.icon = '$(sync~spin)';
                 }
                 this.cache.set(repoRoot, data);
-                // Trigger a UI update to show the loading state immediately
-                globals.statusBarService?.triggerUpdate(false);
+                // Trigger a UI update (full refresh) to recompute commit counts and fetch CI status
+                globals.statusBarService?.triggerUpdate(true);
             }
             Logger.log(`Cache invalidated for ${repoRoot}`, "INFO");
         }
