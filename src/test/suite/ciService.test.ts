@@ -9,10 +9,82 @@ suite("CIService Test Suite", () => {
   let sandbox: sinon.SinonSandbox;
   let testEnv: ReturnType<typeof setupTestEnvironment>;
 
+  function createGitHubHeaders(overrides: Record<string, string> = {}) {
+    return {
+      "x-ratelimit-limit": "5000",
+      "x-ratelimit-remaining": "4999",
+      "x-ratelimit-reset": `${Math.floor((Date.now() + 5 * 60 * 1000) / 1000)}`,
+      ...overrides
+    };
+  }
+
+  function createGitLabHeaders(overrides: Record<string, string> = {}) {
+    return {
+      "ratelimit-limit": "5000",
+      "ratelimit-remaining": "4999",
+      "ratelimit-reset": "300",
+      ...overrides
+    };
+  }
+
+  function createGitHubRunsResponse(
+    status: string,
+    ref: string,
+    conclusion: string | null = status === "completed" ? "success" : null,
+    headers: Record<string, string> = createGitHubHeaders()
+  ) {
+    return {
+      data: {
+        total_count: 1,
+        workflow_runs: [
+          {
+            id: 123,
+            status,
+            conclusion,
+            html_url: "https://github.com/owner/repo/actions/runs/123",
+            head_commit: {id: "1234567890abcdef"},
+            head_branch: ref
+          }
+        ]
+      },
+      headers
+    };
+  }
+
+  function createGitLabPipelinesResponse(
+    status: string,
+    ref: string,
+    headers: Record<string, string> = createGitLabHeaders()
+  ) {
+    return {
+      data: [
+        {
+          id: 123,
+          status,
+          web_url: "https://gitlab.com/owner/repo/-/pipelines/123",
+          ref
+        }
+      ],
+      headers
+    };
+  }
+
+  function createGitHubRateLimitError(headers: Record<string, string>) {
+    const error = new Error("Rate limit exceeded");
+    (error as any).isAxiosError = true;
+    (error as any).response = {
+      status: 403,
+      headers,
+      data: {message: "API rate limit exceeded"}
+    };
+    return error;
+  }
+
   setup(() => {
     testEnv = setupTestEnvironment();
     sandbox = testEnv.sandbox;
     sandbox.stub(Logger, "log");
+    (CIService as any).rateLimitState = {};
   });
 
   teardown(() => {
@@ -21,161 +93,76 @@ suite("CIService Test Suite", () => {
 
   test("getBuildStatus should return correct status for GitHub tag", async () => {
     const ciService = new CIService("owner", "repo");
-    sandbox.stub(axios, "get").resolves({
-      data: {
-        total_count: 1,
-        workflow_runs: [
-          {
-            id: 123,
-            status: "completed",
-            conclusion: "success",
-            html_url: "https://github.com/owner/repo/actions/runs/123",
-            head_commit: {id: "1234567890abcdef"},
-            head_branch: "1.0.0"
-          }
-        ]
-      },
-      headers: {
-        "x-ratelimit-limit": "5000",
-        "x-ratelimit-remaining": "4999",
-        "x-ratelimit-reset": "1609459200"
-      }
-    });
+    sandbox.stub(axios, "get").resolves(createGitHubRunsResponse("completed", "1.0.0"));
 
     const result = await ciService.getBuildStatus("1.0.0", "github", true);
     assert.strictEqual(result?.status, "success");
     assert.strictEqual(result?.url, "https://github.com/owner/repo/actions/runs/123");
+    assert.strictEqual(result?.icon, "$(check)");
   });
 
   test("getBuildStatus should return correct status for GitHub branch", async () => {
     const ciService = new CIService("owner", "repo");
-    sandbox.stub(axios, "get").resolves({
-      data: {
-        total_count: 1,
-        workflow_runs: [
-          {
-            id: 123,
-            status: "completed",
-            conclusion: "success",
-            html_url: "https://github.com/owner/repo/actions/runs/123",
-            head_commit: {
-              id: "1234567890abcdef"
-            },
-            head_branch: "main"
-          }
-        ]
-      },
-      headers: {
-        "x-ratelimit-limit": "5000",
-        "x-ratelimit-remaining": "4999",
-        "x-ratelimit-reset": "1609459200"
-      }
-    });
-
-    (ciService as any).providers = { github: { token: 'fake_token', apiUrl: 'https://api.github.com' } };
-    (ciService as any).getBuildStatus = sandbox.stub();
-    (ciService['getBuildStatus'] as sinon.SinonStub)
-      .withArgs("main", "github", false, sinon.match.any)
-      .resolves({
-        status: "success",
-        url: "https://github.com/owner/repo/actions/runs/123",
-        message: "GitHub CI returning status: success for branch main",
-        icon: "$(check)"
-      });
+    sandbox.stub(axios, "get").resolves(createGitHubRunsResponse("completed", "main"));
 
     const status = await ciService.getBuildStatus("main", "github", false);
-    assert.strictEqual(status?.status, undefined);
+    assert.strictEqual(status?.status, "success");
+    assert.strictEqual(status?.url, "https://github.com/owner/repo/actions/runs/123");
+    assert.strictEqual(status?.icon, "$(check)");
   });
 
   test("getBuildStatus should return correct status for GitLab tag", async () => {
-    const owner = "owner";
-    const repo = "repo";
-    const ciService = new CIService(owner, repo);
-    sandbox.stub(axios, "get").resolves({
-      data: [
-        {
-          id: 123,
-          status: "success",
-          web_url: "https://gitlab.com/owner/repo/-/pipelines/123",
-          ref: "1.0.0"
-        }
-      ],
-      headers: {
-        "ratelimit-limit": "5000",
-        "ratelimit-remaining": "4999",
-        "ratelimit-reset": "1609459200"
-      }
-    });
+    const ciService = new CIService("owner", "repo");
+    sandbox.stub(axios, "get").resolves(createGitLabPipelinesResponse("success", "1.0.0"));
 
-    (ciService as any).providers = { gitlab: { token: 'fake_token', apiUrl: 'https://gitlab.com/api/v4' } };
-    (ciService as any).getBuildStatus = sandbox.stub();
-    (ciService['getBuildStatus'] as sinon.SinonStub)
-      .withArgs("1.0.0", "gitlab", true, sinon.match.any)
-      .resolves({
-        status: "success",
-        url: "https://gitlab.com/api/v4/owner/repo/-/pipelines/123",
-        message: "GitLab CI returning status: success for tag 1.0.0",
-        icon: "$(check)"
-      });
     const status = await ciService.getBuildStatus("1.0.0", "gitlab", true);
 
-    assert.strictEqual(status?.status, undefined);
+    assert.strictEqual(status?.status, "success");
+    assert.ok(status?.url?.includes("pipelines/123"));
+    assert.strictEqual(status?.icon, "$(check)");
   });
 
   test("getBuildStatus should return no_runs for GitLab when no matching pipeline is found", async () => {
-    const owner = "owner";
-    const repo = "repo";
-    const ciService = new CIService(owner, repo);
+    const ciService = new CIService("owner", "repo");
     sandbox.stub(axios, "get").resolves({
       data: [],
-      headers: {
-        "ratelimit-limit": "5000",
-        "ratelimit-remaining": "4999",
-        "ratelimit-reset": "1609459200"
-      }
+      headers: createGitLabHeaders()
     });
-
-    (ciService as any).providers = { gitlab: { token: 'fake_token', apiUrl: 'https://gitlab.com/api/v4' } };
-    (ciService as any).getBuildStatus = sandbox.stub();
-    (ciService['getBuildStatus'] as sinon.SinonStub)
-      .withArgs("1.0.0", "gitlab", true, sinon.match.any)
-      .resolves({
-        status: "no_runs",
-        url: "https://gitlab.com/api/v4/owner/repo/-/pipelines",
-        message: "No pipeline found for tag 1.0.0",
-        icon: "$(question)"
-      });
 
     const status = await ciService.getBuildStatus("1.0.0", "gitlab", true);
 
-    assert.strictEqual(status?.status, undefined);
+    assert.strictEqual(status?.status, "no_runs");
+    assert.ok(status?.message?.includes("No pipeline found"));
   });
 
-  test("getImmediateBuildStatus should return fresh status", async () => {
+  test("getImmediateBuildStatus should bypass the cache", async () => {
     const ciService = new CIService("owner", "repo");
-    sandbox.stub(axios, "get").resolves({
-      data: {
-        total_count: 1,
-        workflow_runs: [
-          {
-            id: 123,
-            status: "completed",
-            conclusion: "success",
-            html_url: "https://github.com/owner/repo/actions/runs/123",
-            head_commit: {id: "1234567890abcdef"},
-            head_branch: "main"
-          }
-        ]
-      },
-      headers: {
-        "x-ratelimit-limit": "5000",
-        "x-ratelimit-remaining": "4999",
-        "x-ratelimit-reset": "1609459200"
-      }
-    });
+    const axiosStub = sandbox.stub(axios, "get");
+    axiosStub.onFirstCall().resolves(createGitHubRunsResponse("completed", "main", "success"));
+    axiosStub.onSecondCall().resolves(createGitHubRunsResponse("completed", "main", "failure"));
 
+    const cached = await ciService.getBuildStatus("main", "github", false);
     const result = await ciService.getImmediateBuildStatus("main", "github", false);
-    assert.strictEqual(result.status, "success");
+
+    assert.strictEqual(cached?.status, "success");
+    assert.strictEqual(result.status, "failure");
+    assert.strictEqual(axiosStub.callCount, 2);
+  });
+
+  test("Should activate cooldown when GitHub quota is nearly exhausted", async () => {
+    const ciService = new CIService("owner", "repo");
+    const axiosStub = sandbox
+      .stub(axios, "get")
+      .resolves(
+        createGitHubRunsResponse("completed", "main", "success", createGitHubHeaders({"x-ratelimit-remaining": "25"}))
+      );
+
+    const firstResult = await ciService.getBuildStatus("main", "github", false);
+    const secondResult = await ciService.getBuildStatus("main", "github", false, true);
+
+    assert.strictEqual(firstResult?.status, "success");
+    assert.strictEqual(secondResult?.status, "success");
+    assert.strictEqual(axiosStub.callCount, 1, "Force refresh should reuse the cached result during cooldown");
   });
 
   test("Should handle errors gracefully when GitService fails", async () => {
@@ -189,41 +176,33 @@ suite("CIService Test Suite", () => {
 
   test("Should handle GitLab CI type correctly", async () => {
     const ciService = new CIService("owner", "repo");
-    sandbox.stub(axios, "get").resolves({
-      data: [
-        {
-          status: "success",
-          web_url: "https://gitlab.com/owner/repo/-/pipelines/123",
-          ref: "main"
-        }
-      ],
-      headers: {}
-    });
+    sandbox.stub(axios, "get").resolves(createGitLabPipelinesResponse("success", "main"));
     const result = await ciService.getBuildStatus("main", "gitlab", false);
     assert.strictEqual(result?.status, "success");
   });
 
   test("Should handle no CI configuration", async () => {
     const ciService = new CIService("owner", "repo");
-    const result = await ciService.getBuildStatus("main", "unknown" as any, false);
+    (ciService as any).providers = {};
+    const result = await ciService.getBuildStatus("main", "github", false);
     assert.strictEqual(result?.status, "unknown");
   });
 
-  test("Should handle rate limiting", async () => {
+  test("Should reuse cached data after GitHub rate limiting", async () => {
     const ciService = new CIService("owner", "repo");
-    const axiosError = new Error("Rate limit exceeded");
-    (axiosError as any).isAxiosError = true;
-    (axiosError as any).response = { 
-      status: 403, 
-      headers: { "x-ratelimit-reset": "1609459200" },
-      data: { message: "API rate limit exceeded" }
-    };
-    
-    sandbox.stub(axios, "get").rejects(axiosError);
-    const result = await ciService.getBuildStatus("main", "github", false);
-    assert.strictEqual(result?.status, "error", "Status should be 'error'");
-    assert.ok(result?.message?.includes("Permission denied") || result?.message?.includes("API request failed"), "Message should indicate error");
-    assert.strictEqual(result?.url, undefined, "URL should be undefined on error");
+    const resetHeader = createGitHubHeaders({"x-ratelimit-remaining": "0"});
+    const axiosStub = sandbox.stub(axios, "get");
+    axiosStub.onFirstCall().resolves(createGitHubRunsResponse("completed", "main", "success"));
+    axiosStub.onSecondCall().rejects(createGitHubRateLimitError(resetHeader));
+
+    const firstResult = await ciService.getBuildStatus("main", "github", false);
+    const secondResult = await ciService.getBuildStatus("main", "github", false, true);
+    const thirdResult = await ciService.getBuildStatus("main", "github", false, true);
+
+    assert.strictEqual(firstResult?.status, "success");
+    assert.strictEqual(secondResult?.status, "success");
+    assert.strictEqual(thirdResult?.status, "success");
+    assert.strictEqual(axiosStub.callCount, 2, "Cooldown should skip the third network request");
   });
 
   test("Should handle tag creation", async () => {
@@ -252,9 +231,7 @@ suite("CIService Test Suite", () => {
 
   test("clearCacheForBranch should result in a new network request", async () => {
     const ciService = new CIService("owner", "repo");
-    const axiosStub = sandbox.stub(axios, "get").resolves({
-      data: { workflow_runs: [{ status: "completed", conclusion: "success" }] },
-    });
+    const axiosStub = sandbox.stub(axios, "get").resolves(createGitHubRunsResponse("completed", "main"));
 
     // First call, should use network and populate cache
     await ciService.getBuildStatus("main", "github", false);
@@ -274,22 +251,7 @@ suite("CIService Test Suite", () => {
 
   test("getBuildStatus should return correct status for GitHub in_progress workflow", async () => {
     const ciService = new CIService("owner", "repo");
-    sandbox.stub(axios, "get").resolves({
-      data: {
-        total_count: 1,
-        workflow_runs: [
-          {
-            id: 123,
-            status: "in_progress",
-            conclusion: null,
-            html_url: "https://github.com/owner/repo/actions/runs/123",
-            head_commit: {id: "1234567890abcdef"},
-            head_branch: "main"
-          }
-        ]
-      },
-      headers: {}
-    });
+    sandbox.stub(axios, "get").resolves(createGitHubRunsResponse("in_progress", "main", null));
 
     const result = await ciService.getBuildStatus("main", "github", false);
     assert.strictEqual(result?.status, "in_progress");
@@ -298,22 +260,7 @@ suite("CIService Test Suite", () => {
 
   test("getBuildStatus should return correct status for GitHub pending workflow", async () => {
     const ciService = new CIService("owner", "repo");
-    sandbox.stub(axios, "get").resolves({
-      data: {
-        total_count: 1,
-        workflow_runs: [
-          {
-            id: 123,
-            status: "queued",
-            conclusion: null,
-            html_url: "https://github.com/owner/repo/actions/runs/123",
-            head_commit: {id: "1234567890abcdef"},
-            head_branch: "main"
-          }
-        ]
-      },
-      headers: {}
-    });
+    sandbox.stub(axios, "get").resolves(createGitHubRunsResponse("queued", "main", null));
 
     const result = await ciService.getBuildStatus("main", "github", false);
     assert.strictEqual(result?.status, "queued");
@@ -322,17 +269,7 @@ suite("CIService Test Suite", () => {
 
   test("getBuildStatus should return correct status for GitLab running pipeline", async () => {
     const ciService = new CIService("owner", "repo");
-    sandbox.stub(axios, "get").resolves({
-      data: [
-        {
-          id: 123,
-          status: "running",
-          web_url: "https://gitlab.com/owner/repo/-/pipelines/123",
-          ref: "main"
-        }
-      ],
-      headers: {}
-    });
+    sandbox.stub(axios, "get").resolves(createGitLabPipelinesResponse("running", "main"));
 
     const result = await ciService.getBuildStatus("main", "gitlab", false);
     assert.strictEqual(result?.status, "in_progress");

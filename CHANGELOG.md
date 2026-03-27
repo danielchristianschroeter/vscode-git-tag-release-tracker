@@ -1,5 +1,18 @@
 # Changelog
 
+## [3.0.2]
+
+### Changed
+
+- Reduced CI API pressure by adding provider cooldown handling near rate limits and progressive backoff for long-running build polling.
+- Synchronized release metadata so the manifest and lockfile match the published 3.0.1 release.
+- Expanded automated coverage for rate-limit cooldown handling and polling backoff behavior.
+
+### Fixed
+
+- Updated the documentation to match the actual polling cadence and explain the temporary cached-response cooldown behavior under API pressure.
+- Corrected the release workflow tag version extraction so tagged releases consistently derive the intended version number.
+
 ## [3.0.0]
 
 ### Added
@@ -41,7 +54,7 @@
 
 ## [2.4.4]
 
-## Fixed
+### Fixed
 
 - Refactor Git repository detection logic to improve accuracy and clarity in status updates, adding a method to find the Git root directory.
 

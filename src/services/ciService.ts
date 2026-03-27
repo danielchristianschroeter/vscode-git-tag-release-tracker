@@ -17,24 +17,35 @@ interface CIProvider {
   apiUrl: string;
 }
 
+interface CachedBuildStatus extends BuildStatus {
+  timestamp: number;
+}
+
+interface RateLimitState {
+  cooldownUntil?: number;
+  lastWarningResetAt?: number;
+}
+
 export class CIService {
   private providers: {[key: string]: CIProvider};
   private buildStatusCache: {
     [repoKey: string]: {
-      [cacheKey: string]: {
-        status: string;
-        url?: string;
-        message?: string;
-        timestamp: number;
-      };
+      [cacheKey: string]: CachedBuildStatus;
     };
   } = {};
-  private rateLimitWarningThreshold = 0.95;
-  private inProgressStatuses = ["pending", "in_progress", "queued", "requested", "waiting", "running"];
-  private inProgressCacheDuration = 10000; // 10 seconds
-  private cacheDuration = 60000; // 1 minute cache
+  private static rateLimitState: Partial<Record<"github" | "gitlab", RateLimitState>> = {};
+  private readonly rateLimitWarningThreshold = 0.95;
+  private readonly rateLimitCooldownThreshold = 0.99;
+  private readonly minimumRemainingBeforeCooldown = 25;
+  private readonly defaultRateLimitCooldownMs = 5 * 60 * 1000;
+  private readonly inProgressStatuses = ["pending", "in_progress", "queued", "requested", "waiting", "running"];
+  private readonly inProgressCacheDuration = 10000; // 10 seconds
+  private readonly cacheDuration = 60000; // 1 minute cache
 
-  constructor(private owner: string, private repo: string) {
+  constructor(
+    private owner: string,
+    private repo: string
+  ) {
     this.providers = this.loadProviders();
   }
 
@@ -59,17 +70,36 @@ export class CIService {
     const repoKey = `${this.owner}/${this.repo}`;
     const cacheKey = `${ref}/${ciType}`;
     const now = Date.now();
+    const cachedResult = this.getCachedResult(repoKey, cacheKey);
 
-    if (!forceRefresh && this.buildStatusCache[repoKey] && this.buildStatusCache[repoKey][cacheKey]) {
-      const cachedResult = this.buildStatusCache[repoKey][cacheKey];
+    if (cachedResult && !forceRefresh) {
       const cacheAge = now - cachedResult.timestamp;
       const isInProgress = this.inProgressStatuses.includes(cachedResult.status);
       const validCacheDuration = isInProgress ? this.inProgressCacheDuration : this.cacheDuration;
 
       if (cacheAge < validCacheDuration) {
         Logger.log(`Returning cached build status for ${ref} (${this.owner}/${this.repo})`, "INFO");
-        return cachedResult;
+        return this.toBuildStatus(cachedResult);
       }
+    }
+
+    const cooldownUntil = this.getActiveCooldown(ciType, now);
+    if (cooldownUntil) {
+      Logger.log(
+        `Skipping fresh ${ciType} build status fetch for ${ref} (${this.owner}/${this.repo}) until ${this.formatResetTime(cooldownUntil)}`,
+        "WARNING"
+      );
+
+      if (cachedResult) {
+        return this.toBuildStatus(cachedResult);
+      }
+
+      return {
+        status: "unknown",
+        url: "",
+        icon: this.getStatusIcon("unknown"),
+        message: `Skipping ${ciType} build status checks until ${this.formatResetTime(cooldownUntil)} to reduce API pressure.`
+      };
     }
 
     Logger.log(`Fetching fresh build status for ${ref} (${this.owner}/${this.repo}) using ${ciType}`, "INFO");
@@ -94,29 +124,33 @@ export class CIService {
         throw new Error("Unsupported CI type");
       }
 
+      result.icon = this.getStatusIcon(result.status);
+
       // Check rate limit after successful API call, only if headers are available
       if (result.response?.headers) {
         this.checkRateLimit(result.response.headers, ciType);
       }
 
       this.cacheResult(ref, ciType, result);
-      
-      // Add icon to result before returning
-      result.icon = this.getStatusIcon(result.status);
 
       return result;
     } catch (error) {
       const errorResult = this.handleFetchError(error, ciType);
+
+      if (this.isRateLimitError(error, ciType) && cachedResult) {
+        Logger.log(
+          `Returning cached build status for ${ref} (${this.owner}/${this.repo}) after ${ciType} rate limiting`,
+          "WARNING"
+        );
+        return this.toBuildStatus(cachedResult);
+      }
+
       errorResult.icon = this.getStatusIcon(errorResult.status);
       return errorResult;
     }
   }
 
-  private async getGitHubBuildStatus(
-    ref: string,
-    provider: CIProvider,
-    isTag: boolean
-  ): Promise<BuildStatus> {
+  private async getGitHubBuildStatus(ref: string, provider: CIProvider, isTag: boolean): Promise<BuildStatus> {
     const runsUrl = `${provider.apiUrl}/repos/${this.owner}/${this.repo}/actions/runs`;
     Logger.log(`Fetching workflow runs for ${ref} from: ${runsUrl}`, "INFO");
 
@@ -186,15 +220,11 @@ export class CIService {
         };
       }
       Logger.log(`Error fetching GitHub workflow runs: ${this.getErrorMessage(error, "github").message}`, "ERROR");
-      return this.handleFetchError(error, "github");
+      throw error;
     }
   }
 
-  private async getGitLabBuildStatus(
-    ref: string,
-    provider: CIProvider,
-    isTag: boolean
-  ): Promise<BuildStatus> {
+  private async getGitLabBuildStatus(ref: string, provider: CIProvider, isTag: boolean): Promise<BuildStatus> {
     // Ensure the API URL includes the /api/v4 path
     const apiUrl = provider.apiUrl.endsWith("/api/v4") ? provider.apiUrl : `${provider.apiUrl}/api/v4`;
     const pipelinesUrl = `${apiUrl}/projects/${encodeURIComponent(`${this.owner}/${this.repo}`)}/pipelines`;
@@ -266,7 +296,7 @@ export class CIService {
         };
       }
       Logger.log(`Error fetching GitLab pipelines: ${this.getErrorMessage(error, "gitlab").message}`, "ERROR");
-      return this.handleFetchError(error, "gitlab");
+      throw error;
     }
   }
 
@@ -315,31 +345,123 @@ export class CIService {
     }
   }
 
-  async getImmediateBuildStatus(
-    ref: string,
-    ciType: "github" | "gitlab",
-    isTag: boolean
-  ): Promise<BuildStatus> {
+  async getImmediateBuildStatus(ref: string, ciType: "github" | "gitlab", isTag: boolean): Promise<BuildStatus> {
     Logger.log(`Immediately fetching build status for ${ref} (${this.owner}/${this.repo})`, "INFO");
     const result = await this.getBuildStatus(ref, ciType, isTag, true);
     return result || {status: "unknown", url: "", message: "Unable to fetch immediate build status."};
   }
 
-  private checkRateLimit(headers: any, ciType: "github" | "gitlab") {
-    let limit: number, remaining: number, reset: string | number;
+  private getCachedResult(repoKey: string, cacheKey: string): CachedBuildStatus | undefined {
+    return this.buildStatusCache[repoKey]?.[cacheKey];
+  }
 
-    if (ciType === "github") {
-      limit = parseInt(headers["x-ratelimit-limit"] || "0");
-      remaining = parseInt(headers["x-ratelimit-remaining"] || "0");
-      reset = new Date(parseInt(headers["x-ratelimit-reset"] || "0") * 1000).toLocaleTimeString();
-    } else if (ciType === "gitlab") {
-      limit = parseInt(headers["ratelimit-limit"] || "0");
-      remaining = parseInt(headers["ratelimit-remaining"] || "0");
-      reset = headers["ratelimit-reset"] || "unknown";
-    } else {
-      Logger.log(`Unknown CI type: ${ciType}, skipping rate limit check`, "WARNING");
-      return;
+  private toBuildStatus(cachedResult: CachedBuildStatus): BuildStatus {
+    const {timestamp, ...result} = cachedResult;
+    return {...result};
+  }
+
+  private getActiveCooldown(ciType: "github" | "gitlab", now: number): number | undefined {
+    const state = CIService.rateLimitState[ciType];
+    if (!state?.cooldownUntil) {
+      return undefined;
     }
+
+    if (state.cooldownUntil <= now) {
+      delete state.cooldownUntil;
+      return undefined;
+    }
+
+    return state.cooldownUntil;
+  }
+
+  private activateRateLimitCooldown(ciType: "github" | "gitlab", headers?: any, reason?: string): number {
+    const resetAt = this.getRateLimitResetTimestamp(headers, ciType) ?? Date.now() + this.defaultRateLimitCooldownMs;
+    const state = CIService.rateLimitState[ciType] ?? {};
+
+    if (!state.cooldownUntil || resetAt > state.cooldownUntil) {
+      state.cooldownUntil = resetAt;
+      CIService.rateLimitState[ciType] = state;
+      Logger.log(
+        `Entering ${ciType} API cooldown until ${this.formatResetTime(resetAt)}${reason ? `: ${reason}` : ""}`,
+        "WARNING"
+      );
+    }
+
+    return state.cooldownUntil ?? resetAt;
+  }
+
+  private getRateLimitResetTimestamp(headers: any, ciType: "github" | "gitlab"): number | undefined {
+    if (!headers) {
+      return undefined;
+    }
+
+    const rawReset = ciType === "github" ? headers["x-ratelimit-reset"] : headers["ratelimit-reset"];
+    const parsedReset = Number.parseInt(String(rawReset ?? ""), 10);
+
+    if (!Number.isFinite(parsedReset) || parsedReset <= 0) {
+      return undefined;
+    }
+
+    if (ciType === "github" || parsedReset > 1_000_000_000) {
+      return parsedReset * 1000;
+    }
+
+    return Date.now() + parsedReset * 1000;
+  }
+
+  private formatResetTime(timestamp: number): string {
+    return new Date(timestamp).toLocaleTimeString();
+  }
+
+  private isRateLimitResponse(response: AxiosResponse, ciType: "github" | "gitlab"): boolean {
+    if (response.status === 429) {
+      return true;
+    }
+
+    if (response.status !== 403) {
+      return false;
+    }
+
+    const remainingHeader =
+      ciType === "github" ? response.headers?.["x-ratelimit-remaining"] : response.headers?.["ratelimit-remaining"];
+    const remaining = Number.parseInt(String(remainingHeader ?? ""), 10);
+    const responseText = this.getResponseText(response.data);
+
+    return remaining === 0 || responseText.includes("rate limit");
+  }
+
+  private isRateLimitError(error: unknown, ciType: "github" | "gitlab"): boolean {
+    return axios.isAxiosError(error) && !!error.response && this.isRateLimitResponse(error.response, ciType);
+  }
+
+  private getResponseText(data: unknown): string {
+    if (typeof data === "string") {
+      return data.toLowerCase();
+    }
+
+    if (data && typeof data === "object" && "message" in data) {
+      return String((data as {message?: unknown}).message ?? "").toLowerCase();
+    }
+
+    return JSON.stringify(data).toLowerCase();
+  }
+
+  private getRateLimitInfo(headers: any, ciType: "github" | "gitlab") {
+    const limitHeader = ciType === "github" ? headers["x-ratelimit-limit"] : headers["ratelimit-limit"];
+    const remainingHeader = ciType === "github" ? headers["x-ratelimit-remaining"] : headers["ratelimit-remaining"];
+    const limit = Number.parseInt(String(limitHeader ?? "0"), 10);
+    const remaining = Number.parseInt(String(remainingHeader ?? "0"), 10);
+    const resetAt = this.getRateLimitResetTimestamp(headers, ciType);
+
+    return {
+      limit,
+      remaining,
+      resetAt
+    };
+  }
+
+  private checkRateLimit(headers: any, ciType: "github" | "gitlab") {
+    const {limit, remaining, resetAt} = this.getRateLimitInfo(headers, ciType);
 
     if (limit > 0) {
       const usagePercentage = (limit - remaining) / limit;
@@ -347,20 +469,30 @@ export class CIService {
         `Rate limit for ${ciType}: ${usagePercentage.toFixed(1)}% used, ${remaining} remaining out of ${limit}.`,
         "INFO"
       );
+
       if (usagePercentage >= this.rateLimitWarningThreshold) {
-        const warningMessage = `${ciType} API rate limit is at ${(usagePercentage * 100).toFixed(
-          1
-        )}%. Limit resets at ${reset}. Please be cautious with further requests.`;
-        vscode.window.showWarningMessage(warningMessage);
+        const warningKey = resetAt ?? -1;
+        const state = CIService.rateLimitState[ciType] ?? {};
+
+        if (state.lastWarningResetAt !== warningKey) {
+          state.lastWarningResetAt = warningKey;
+          CIService.rateLimitState[ciType] = state;
+
+          const resetDisplay = resetAt ? this.formatResetTime(resetAt) : "unknown";
+          const warningMessage = `${ciType} API rate limit is at ${(usagePercentage * 100).toFixed(
+            1
+          )}%. Limit resets at ${resetDisplay}. Please be cautious with further requests.`;
+          vscode.window.showWarningMessage(warningMessage);
+        }
+      }
+
+      if (usagePercentage >= this.rateLimitCooldownThreshold || remaining <= this.minimumRemainingBeforeCooldown) {
+        this.activateRateLimitCooldown(ciType, headers, `remaining quota is low (${remaining}/${limit})`);
       }
     }
   }
 
-  private cacheResult(
-    ref: string,
-    ciType: string,
-    result: BuildStatus
-  ) {
+  private cacheResult(ref: string, ciType: "github" | "gitlab", result: BuildStatus) {
     const repoKey = `${this.owner}/${this.repo}`;
     if (!this.buildStatusCache[repoKey]) {
       this.buildStatusCache[repoKey] = {};
@@ -372,10 +504,7 @@ export class CIService {
     Logger.log(`Cached build status for ${ref} (${repoKey})`, "INFO");
   }
 
-  private handleFetchError(
-    error: any,
-    ciType: "github" | "gitlab" | null
-  ): BuildStatus {
+  private handleFetchError(error: any, ciType: "github" | "gitlab" | null): BuildStatus {
     const repoKey = `${this.owner}/${this.repo}`;
     let message = `Failed to fetch build status from ${ciType}.`;
 
@@ -384,11 +513,18 @@ export class CIService {
       if (response) {
         const {status, data} = response;
         message = `API request failed with status ${status}: ${JSON.stringify(data)}`;
-        if (status === 401) {
+
+        if (ciType && this.isRateLimitResponse(response, ciType)) {
+          const cooldownUntil = this.activateRateLimitCooldown(
+            ciType,
+            response.headers,
+            "received a rate-limited response"
+          );
+          message = `Rate limit exceeded for ${ciType}. Using cached data when available until ${this.formatResetTime(cooldownUntil)}.`;
+        } else if (status === 401) {
           message = "Authentication failed. Please check your CI token.";
         } else if (status === 403) {
           message = "Permission denied. Please check your CI token and repository permissions.";
-          this.checkRateLimit(response.headers, ciType as "github" | "gitlab");
         } else if (status === 404) {
           message = "Resource not found. Please check your repository path and CI configuration.";
         } else if (status === 429) {
@@ -409,10 +545,7 @@ export class CIService {
     };
   }
 
-  private getErrorMessage(
-    error: any,
-    ciType: "github" | "gitlab" | null
-  ): BuildStatus {
+  private getErrorMessage(error: any, ciType: "github" | "gitlab" | null): BuildStatus {
     const providerName = ciType === "github" ? "GitHub" : "GitLab";
     let message = `Failed to fetch status from ${providerName}.`;
     let status = "error";
@@ -420,7 +553,7 @@ export class CIService {
     if (axios.isAxiosError(error)) {
       const axiosError = error as AxiosError;
       if (axiosError.response) {
-        const { status: httpStatus, data } = axiosError.response;
+        const {status: httpStatus, data} = axiosError.response;
         message = `API error from ${providerName}: ${httpStatus} - ${JSON.stringify(data)}`;
         if (httpStatus === 401) {
           message = `Authentication failed for ${providerName}. Please check your token.`;
@@ -439,7 +572,7 @@ export class CIService {
       message = `An unexpected error occurred: ${error.message}`;
     }
 
-    return { status, message };
+    return {status, message};
   }
 
   public isInProgressStatus(status: string): boolean {
@@ -448,44 +581,44 @@ export class CIService {
 
   public getStatusIcon(status: string): string {
     switch (status) {
-        case "success":
-        case "completed":
-            return "$(check)";
-        case "failure":
-        case "failed":
-            return "$(x)";
-        case "cancelled":
-        case "canceled":
-            return "$(circle-slash)";
-        case "action_required":
-        case "manual":
-            return "$(alert)";
-        case "in_progress":
-        case "running":
-            return "$(sync~spin)";
-        case "loading":
-            return "$(sync~spin)";
-        case "queued":
-        case "created":
-        case "scheduled":
-            return "$(clock)";
-        case "requested":
-        case "waiting":
-        case "waiting_for_resource":
-            return "$(watch)";
-        case "pending":
-        case "preparing":
-            return "$(clock)";
-        case "neutral":
-            return "$(dash)";
-        case "skipped":
-            return "$(skip)";
-        case "stale":
-            return "$(history)";
-        case "timed_out":
-            return "$(clock)";
-        default:
-            return "$(question)";
+      case "success":
+      case "completed":
+        return "$(check)";
+      case "failure":
+      case "failed":
+        return "$(x)";
+      case "cancelled":
+      case "canceled":
+        return "$(circle-slash)";
+      case "action_required":
+      case "manual":
+        return "$(alert)";
+      case "in_progress":
+      case "running":
+        return "$(sync~spin)";
+      case "loading":
+        return "$(sync~spin)";
+      case "queued":
+      case "created":
+      case "scheduled":
+        return "$(clock)";
+      case "requested":
+      case "waiting":
+      case "waiting_for_resource":
+        return "$(watch)";
+      case "pending":
+      case "preparing":
+        return "$(clock)";
+      case "neutral":
+        return "$(dash)";
+      case "skipped":
+        return "$(skip)";
+      case "stale":
+        return "$(history)";
+      case "timed_out":
+        return "$(clock)";
+      default:
+        return "$(question)";
     }
   }
 
@@ -495,17 +628,13 @@ export class CIService {
     Logger.log("CI providers reloaded.", "INFO");
   }
 
-  public getCompareUrl(
-    from: string,
-    to: string,
-    ciType: "github" | "gitlab"
-  ): BuildStatus {
+  public getCompareUrl(from: string, to: string, ciType: "github" | "gitlab"): BuildStatus {
     // Remove 'origin/' prefix from branch names for proper URL generation
-    const cleanFrom = from.replace(/^origin\//, '');
-    const cleanTo = to.replace(/^origin\//, '');
-    
+    const cleanFrom = from.replace(/^origin\//, "");
+    const cleanTo = to.replace(/^origin\//, "");
+
     Logger.log(`Generating compare URL for ${cleanFrom}...${cleanTo} using ${ciType}`, "INFO");
-    
+
     if (ciType === "github") {
       const url = `${this.getBaseUrl(ciType)}/compare/${cleanFrom}...${cleanTo}`;
       return {

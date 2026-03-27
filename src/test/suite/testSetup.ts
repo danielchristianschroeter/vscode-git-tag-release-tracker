@@ -12,6 +12,8 @@ export function setupTestEnvironment() {
   };
 
   sandbox.stub(vscode.window, "createOutputChannel").returns(outputChannelMock as any);
+  sandbox.stub(vscode.window, "showWarningMessage").resolves(undefined as any);
+  sandbox.stub(vscode.window, "showErrorMessage").resolves(undefined as any);
 
   const mockConfig = {
     get: sandbox.stub().returns({
