@@ -105,7 +105,7 @@ export class MultiRepoService {
         }
         this.pollingInterval = setInterval(async () => {
             await this.pollInProgressBuilds();
-        }, 5000); // Poll every 5 seconds
+        }, 15000); // Poll every 15 seconds
     }
 
     private async pollInProgressBuilds() {

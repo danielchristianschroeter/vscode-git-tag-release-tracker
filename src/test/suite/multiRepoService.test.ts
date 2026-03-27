@@ -143,7 +143,7 @@ suite('MultiRepoService Test Suite', () => {
     assert.strictEqual(updatedData?.branchBuildStatus?.status, 'success', 'Branch build status should be updated to success');
     assert.ok((globals.statusBarService?.triggerUpdate as sinon.SinonStub).calledWith(false), 'UI should be triggered to update');
 
-    await clock.tickAsync(5000);
+    await clock.tickAsync(15000);
   });
 
   test('clearCache should clear all repository data', async () => {
