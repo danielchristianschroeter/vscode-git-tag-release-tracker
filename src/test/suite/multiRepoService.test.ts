@@ -45,6 +45,7 @@ suite("MultiRepoService Test Suite", () => {
     gitService.getDefaultBranch.resolves("main");
     gitService.getOwnerAndRepo.resolves({owner: "test-owner", repo: "test-repo"});
     gitService.getLatestTag.resolves({latest: "v1.0.0"});
+    gitService.fetchLatest.resolves();
     gitService.getCommitCounts.resolves(0);
     gitService.hasRemote.resolves(true);
     gitService.detectCIType.returns("github");
@@ -81,6 +82,18 @@ suite("MultiRepoService Test Suite", () => {
     const repo2Data = aggregatedData.repoData.find(d => d.repoRoot === "/repo2");
     assert.strictEqual(repo2Data?.unreleasedCount, 2);
     assert.strictEqual(repo2Data?.unmergedCount, 0);
+    sinon.assert.notCalled(services1.gitService.fetchLatest as sinon.SinonStub);
+    sinon.assert.notCalled(services2.gitService.fetchLatest as sinon.SinonStub);
+  });
+
+  test("getAggregatedData should fetch latest changes when force refresh is requested", async () => {
+    const services = createMockServices("/repo1");
+    repositoryServices.set("/repo1", services);
+
+    multiRepoService = new MultiRepoService(repositoryServices);
+    await multiRepoService.getAggregatedData(true);
+
+    sinon.assert.calledOnce(services.gitService.fetchLatest as sinon.SinonStub);
   });
 
   test("invalidateCacheForRepo should set build statuses to loading", () => {

@@ -14,6 +14,7 @@ The **Git Tag Release Tracker** extension for VS Code simplifies Git tag and rel
 - **Compare Commits**: Open a GitHub/GitLab compare link to view changes between tags/branches.
 - **Automatic Updates**: Status bar updates build status on repository/branch changes and after any push.
 - **Real-Time Polling & Smart Caching**: In-progress build statuses are polled every 15 seconds at first, then backed off automatically to reduce API pressure, while completed results are cached for 1 minute to keep the extension responsive.
+- **Startup-Safe CI Loading**: Repository status data loads in small batches, and transient GitHub/GitLab transport errors such as connection resets are retried automatically.
 - **Active-File Aware Actions**: Version-increment buttons and Quick Pick menus automatically target the repository of your currently active file.
 
 **Note**: This extension only supports [Semantic Versioning](https://semver.org/) for tag management. Make sure your project follows the SemVer specification for optimal use of this extension.
@@ -124,6 +125,7 @@ This extension adheres to [Semantic Versioning 2.0.0](https://semver.org/). Unde
 - Check extension logs via "Git Tag Release Tracker: Show Logs".
 - Ensure CI tokens are correctly configured.
 - Verify repository has a valid remote URL and is connected to GitHub or GitLab.
+- Transient provider transport issues such as `ECONNRESET` or `socket hang up` are retried automatically; if they persist, the extension temporarily shows an unknown CI state and retries on the next refresh.
 - If build status updates pause for a while under heavy API usage, the extension may be in a temporary rate-limit cooldown and will resume fresh checks after the provider reset window.
 - If you see "Loading..." for an extended period, try switching between files or refreshing VS Code.
 - If build status isn't showing, verify your CI/CD configuration and tokens.

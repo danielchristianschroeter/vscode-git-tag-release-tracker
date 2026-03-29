@@ -1,6 +1,19 @@
 # Changelog
 
-## [3.0.2]
+## [3.0.4]
+
+### Changed
+
+- Improved startup reliability in the Extension Development Host by waiting for the Git API to become ready before initializing repository services.
+- Reduced CI startup latency by fetching branch and tag build status in parallel per repository while keeping repository-level batching in place.
+- Tuned GitHub workflow lookups to search a safer result window and reduced CI request timeouts to fail fast on slow provider responses.
+
+### Fixed
+
+- Resolved an issue where starting the extension with `F5` could leave the status bar empty because repository initialization happened before the Git API was ready.
+- Hardened release publishing with semver tag validation, changelog entry validation, and workflow concurrency protection.
+
+## [3.0.3]
 
 ### Changed
 

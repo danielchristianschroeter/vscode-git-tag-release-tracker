@@ -33,6 +33,7 @@ export class MultiRepoService {
   private pollState: Map<string, {consecutiveInProgressPolls: number; nextPollAt: number}> = new Map();
   private readonly basePollingIntervalMs = 15000;
   private readonly maxPollingIntervalMs = 60000;
+  private readonly repoDataConcurrencyLimit = 2;
 
   constructor(private repositoryServices: Map<string, RepositoryServices>) {
     this.startPolling();
@@ -43,20 +44,11 @@ export class MultiRepoService {
       this.clearCache();
     }
 
-    const repoDataPromises: Promise<RepoData>[] = [];
     const sortedRepos = Array.from(this.repositoryServices.entries()).sort(([pathA], [pathB]) =>
       pathA.toLowerCase().localeCompare(pathB.toLowerCase())
     );
 
-    for (const [repoRoot, services] of sortedRepos) {
-      if (this.cache.has(repoRoot) && !forceRefresh) {
-        repoDataPromises.push(Promise.resolve(this.cache.get(repoRoot)!));
-      } else {
-        repoDataPromises.push(this.getRepoData(repoRoot, services.gitService, services.ciService, true));
-      }
-    }
-
-    const repoDataList = await Promise.all(repoDataPromises);
+    const repoDataList = await this.collectRepoData(sortedRepos, forceRefresh);
 
     repoDataList.forEach(data => this.cache.set(data.repoRoot, data));
 
@@ -225,6 +217,36 @@ export class MultiRepoService {
     return `${repoRoot}:${isTag ? "tag" : "branch"}:${ref}`;
   }
 
+  private async collectRepoData(
+    sortedRepos: Array<[string, RepositoryServices]>,
+    forceRefresh: boolean
+  ): Promise<RepoData[]> {
+    if (sortedRepos.length === 0) {
+      return [];
+    }
+
+    const results: RepoData[] = new Array(sortedRepos.length);
+    let nextIndex = 0;
+    const workerCount = Math.min(this.repoDataConcurrencyLimit, sortedRepos.length);
+
+    await Promise.all(
+      Array.from({length: workerCount}, async () => {
+        while (nextIndex < sortedRepos.length) {
+          const currentIndex = nextIndex;
+          nextIndex += 1;
+
+          const [repoRoot, services] = sortedRepos[currentIndex];
+          results[currentIndex] =
+            this.cache.has(repoRoot) && !forceRefresh
+              ? this.cache.get(repoRoot)!
+              : await this.getRepoData(repoRoot, services.gitService, services.ciService, forceRefresh);
+        }
+      })
+    );
+
+    return results;
+  }
+
   private async getRepoData(
     repoRoot: string,
     gitService: GitService,
@@ -279,19 +301,19 @@ export class MultiRepoService {
       ciType = gitService.detectCIType();
 
       if (ciType && currentBranch) {
-        try {
-          branchBuildStatus = await ciService.getBuildStatus(currentBranch, ciType, false, forceRefresh);
-        } catch (error) {
-          Logger.log(`Error fetching branch build status: ${error}`, "WARNING");
-        }
+        const branchBuildStatusPromise = this.fetchBuildStatusSafe(
+          ciService,
+          currentBranch,
+          ciType,
+          false,
+          forceRefresh,
+          "branch"
+        );
+        const tagBuildStatusPromise = latestTag?.latest
+          ? this.fetchBuildStatusSafe(ciService, latestTag.latest, ciType, true, forceRefresh, "tag")
+          : Promise.resolve(null);
 
-        if (latestTag?.latest) {
-          try {
-            tagBuildStatus = await ciService.getBuildStatus(latestTag.latest, ciType, true, forceRefresh);
-          } catch (error) {
-            Logger.log(`Error fetching tag build status: ${error}`, "WARNING");
-          }
-        }
+        [branchBuildStatus, tagBuildStatus] = await Promise.all([branchBuildStatusPromise, tagBuildStatusPromise]);
       }
     }
 
@@ -308,6 +330,22 @@ export class MultiRepoService {
       tagBuildStatus,
       ciType
     };
+  }
+
+  private async fetchBuildStatusSafe(
+    ciService: CIService,
+    ref: string,
+    ciType: "github" | "gitlab",
+    isTag: boolean,
+    forceRefresh: boolean,
+    kind: "branch" | "tag"
+  ): Promise<BuildStatus | null> {
+    try {
+      return await ciService.getBuildStatus(ref, ciType, isTag, forceRefresh);
+    } catch (error) {
+      Logger.log(`Error fetching ${kind} build status: ${error}`, "WARNING");
+      return null;
+    }
   }
 
   public stopPolling() {

@@ -38,6 +38,9 @@ export class CIService {
   private readonly rateLimitCooldownThreshold = 0.99;
   private readonly minimumRemainingBeforeCooldown = 25;
   private readonly defaultRateLimitCooldownMs = 5 * 60 * 1000;
+  private readonly requestTimeoutMs = 12000;
+  private readonly transientRetryDelayMs = 750;
+  private readonly maxTransientRetryAttempts = 2;
   private readonly inProgressStatuses = ["pending", "in_progress", "queued", "requested", "waiting", "running"];
   private readonly inProgressCacheDuration = 10000; // 10 seconds
   private readonly cacheDuration = 60000; // 1 minute cache
@@ -165,18 +168,24 @@ export class CIService {
     }
 
     try {
-      const runsResponse = await axios.get(runsUrl, {
-        headers: {
-          Authorization: `Bearer ${provider.token}`,
-          Accept: "application/vnd.github+json",
-          "X-GitHub-Api-Version": "2022-11-28"
-        },
-        params: {
-          branch: ref,
-          per_page: 30,
-          exclude_pull_requests: true
-        }
-      });
+      const runsResponse = await this.requestWithRetry(
+        () =>
+          axios.get(runsUrl, {
+            headers: {
+              Authorization: `Bearer ${provider.token}`,
+              Accept: "application/vnd.github+json",
+              "X-GitHub-Api-Version": "2022-11-28"
+            },
+            params: {
+              branch: ref,
+              per_page: 20,
+              exclude_pull_requests: true
+            },
+            timeout: this.requestTimeoutMs
+          }),
+        "github",
+        `${isTag ? "tag" : "branch"} ${ref}`
+      );
 
       //console.log("GitLab API Response:", runsResponse.data);
 
@@ -219,7 +228,6 @@ export class CIService {
           message: `No GitHub Actions configured for ${this.owner}/${this.repo}`
         };
       }
-      Logger.log(`Error fetching GitHub workflow runs: ${this.getErrorMessage(error, "github").message}`, "ERROR");
       throw error;
     }
   }
@@ -241,15 +249,21 @@ export class CIService {
     }
 
     try {
-      const pipelinesResponse = await axios.get(pipelinesUrl, {
-        headers: {"PRIVATE-TOKEN": provider.token},
-        params: {
-          ref: ref,
-          order_by: "id",
-          sort: "desc",
-          per_page: 1
-        }
-      });
+      const pipelinesResponse = await this.requestWithRetry(
+        () =>
+          axios.get(pipelinesUrl, {
+            headers: {"PRIVATE-TOKEN": provider.token},
+            params: {
+              ref: ref,
+              order_by: "id",
+              sort: "desc",
+              per_page: 1
+            },
+            timeout: this.requestTimeoutMs
+          }),
+        "gitlab",
+        `${isTag ? "tag" : "branch"} ${ref}`
+      );
 
       //console.log("GitLab API Response:", pipelinesResponse.data);
 
@@ -295,7 +309,6 @@ export class CIService {
           message: `No GitLab CI/CD configured for ${this.owner}/${this.repo}`
         };
       }
-      Logger.log(`Error fetching GitLab pipelines: ${this.getErrorMessage(error, "gitlab").message}`, "ERROR");
       throw error;
     }
   }
@@ -349,6 +362,36 @@ export class CIService {
     Logger.log(`Immediately fetching build status for ${ref} (${this.owner}/${this.repo})`, "INFO");
     const result = await this.getBuildStatus(ref, ciType, isTag, true);
     return result || {status: "unknown", url: "", message: "Unable to fetch immediate build status."};
+  }
+
+  private async requestWithRetry<T>(
+    requestFactory: () => Promise<AxiosResponse<T>>,
+    ciType: "github" | "gitlab",
+    requestContext: string
+  ): Promise<AxiosResponse<T>> {
+    let retryAttempt = 0;
+
+    while (true) {
+      try {
+        return await requestFactory();
+      } catch (error) {
+        if (!this.isTransientNetworkError(error) || retryAttempt >= this.maxTransientRetryAttempts) {
+          throw error;
+        }
+
+        retryAttempt += 1;
+        const delayMs = this.transientRetryDelayMs * retryAttempt;
+        Logger.log(
+          `Transient ${ciType} network issue while fetching ${requestContext} for ${this.owner}/${this.repo}; retrying in ${delayMs}ms (${retryAttempt}/${this.maxTransientRetryAttempts})`,
+          "WARNING"
+        );
+        await this.delay(delayMs);
+      }
+    }
+  }
+
+  private async delay(delayMs: number): Promise<void> {
+    await new Promise(resolve => setTimeout(resolve, delayMs));
   }
 
   private getCachedResult(repoKey: string, cacheKey: string): CachedBuildStatus | undefined {
@@ -434,6 +477,33 @@ export class CIService {
     return axios.isAxiosError(error) && !!error.response && this.isRateLimitResponse(error.response, ciType);
   }
 
+  private isTransientNetworkError(error: unknown): boolean {
+    if (!axios.isAxiosError(error)) {
+      return error instanceof Error && this.isTransientNetworkMessage(error.message);
+    }
+
+    if (error.response) {
+      return false;
+    }
+
+    const errorCode = String((error as AxiosError).code ?? "").toUpperCase();
+    return (
+      ["ECONNRESET", "ECONNABORTED", "ETIMEDOUT", "EAI_AGAIN", "ENETUNREACH", "EHOSTUNREACH"].includes(errorCode) ||
+      this.isTransientNetworkMessage(error.message)
+    );
+  }
+
+  private isTransientNetworkMessage(message: string): boolean {
+    const normalizedMessage = message.toLowerCase();
+    return (
+      normalizedMessage.includes("socket hang up") ||
+      normalizedMessage.includes("econnreset") ||
+      normalizedMessage.includes("etimedout") ||
+      normalizedMessage.includes("timeout") ||
+      normalizedMessage.includes("eai_again")
+    );
+  }
+
   private getResponseText(data: unknown): string {
     if (typeof data === "string") {
       return data.toLowerCase();
@@ -507,6 +577,9 @@ export class CIService {
   private handleFetchError(error: any, ciType: "github" | "gitlab" | null): BuildStatus {
     const repoKey = `${this.owner}/${this.repo}`;
     let message = `Failed to fetch build status from ${ciType}.`;
+    let severity: "WARNING" | "ERROR" = "ERROR";
+    let status = "error";
+    const isTransientNetworkIssue = this.isTransientNetworkError(error);
 
     if (axios.isAxiosError(error)) {
       const {response} = error as AxiosError;
@@ -531,48 +604,32 @@ export class CIService {
           message = "Rate limit exceeded. Please try again later.";
         }
       } else {
-        message = `Network error: ${error.message}`;
+        if (isTransientNetworkIssue) {
+          const providerName = ciType === "gitlab" ? "GitLab" : "GitHub";
+          message = `Temporary network issue while contacting ${providerName}. The extension will retry automatically.`;
+          severity = "WARNING";
+          status = "unknown";
+        } else {
+          message = `Network error: ${error.message}`;
+        }
       }
     } else if (error instanceof Error) {
-      message = `An unexpected error occurred: ${error.message}`;
+      if (isTransientNetworkIssue) {
+        const providerName = ciType === "gitlab" ? "GitLab" : "GitHub";
+        message = `Temporary network issue while contacting ${providerName}. The extension will retry automatically.`;
+        severity = "WARNING";
+        status = "unknown";
+      } else {
+        message = `An unexpected error occurred: ${error.message}`;
+      }
     }
 
-    Logger.log(`${message} for repository ${repoKey}`, "ERROR");
+    Logger.log(`${message} for repository ${repoKey}`, severity);
     return {
-      status: "error",
+      status,
       url: undefined,
       message
     };
-  }
-
-  private getErrorMessage(error: any, ciType: "github" | "gitlab" | null): BuildStatus {
-    const providerName = ciType === "github" ? "GitHub" : "GitLab";
-    let message = `Failed to fetch status from ${providerName}.`;
-    let status = "error";
-
-    if (axios.isAxiosError(error)) {
-      const axiosError = error as AxiosError;
-      if (axiosError.response) {
-        const {status: httpStatus, data} = axiosError.response;
-        message = `API error from ${providerName}: ${httpStatus} - ${JSON.stringify(data)}`;
-        if (httpStatus === 401) {
-          message = `Authentication failed for ${providerName}. Please check your token.`;
-        } else if (httpStatus === 403) {
-          message = `Forbidden. Check permissions for ${providerName} token.`;
-        } else if (httpStatus === 404) {
-          status = "no_runs";
-          message = `No runs found for the specified reference in ${providerName}.`;
-        }
-      } else if (axiosError.request) {
-        message = `No response received from ${providerName}. Check your network connection and the API URL.`;
-      } else {
-        message = `Error setting up request to ${providerName}: ${axiosError.message}`;
-      }
-    } else if (error instanceof Error) {
-      message = `An unexpected error occurred: ${error.message}`;
-    }
-
-    return {status, message};
   }
 
   public isInProgressStatus(status: string): boolean {

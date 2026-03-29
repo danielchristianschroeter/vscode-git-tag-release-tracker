@@ -1,19 +1,22 @@
 import * as vscode from "vscode";
-import { Logger } from "./utils/logger";
-import { globals } from "./globals";
-import { initializeServices, validateCIConfiguration } from "./servicesManager";
-import { registerCommands } from "./commandManager";
-import { StatusBarService } from "./services/statusBarService";
-import { GitExtension, Repository } from "./types/git";
+import {Logger} from "./utils/logger";
+import {globals} from "./globals";
+import {initializeServices, validateCIConfiguration} from "./servicesManager";
+import {registerCommands} from "./commandManager";
+import {StatusBarService} from "./services/statusBarService";
+import {GitExtension, Repository} from "./types/git";
+
+const gitInitializationPollIntervalMs = 500;
+const gitInitializationMaxAttempts = 20;
 
 function debounce<F extends (...args: any[]) => any>(func: F, wait: number): (...args: Parameters<F>) => void {
-    let timeout: NodeJS.Timeout | undefined;
+  let timeout: NodeJS.Timeout | undefined;
 
-    return function(this: ThisParameterType<F>, ...args: Parameters<F>): void {
-        const context = this;
-        clearTimeout(timeout);
-        timeout = setTimeout(() => func.apply(context, args), wait);
-    };
+  return function (this: ThisParameterType<F>, ...args: Parameters<F>): void {
+    const context = this;
+    clearTimeout(timeout);
+    timeout = setTimeout(() => func.apply(context, args), wait);
+  };
 }
 
 export async function activate(context: vscode.ExtensionContext) {
@@ -36,12 +39,14 @@ export async function activate(context: vscode.ExtensionContext) {
       throw new Error("Git extension not found.");
     }
     const gitApi = gitExtension.exports.getAPI(1);
-    
+
     let commandsRegistered = false;
 
     const debouncedInitialize = debounce(async () => {
       Logger.log("Git repositories changed, re-initializing.", "INFO");
       await initializeServices();
+
+      const hadStatusBarService = !!globals.statusBarService;
       if (!globals.statusBarService) {
         globals.statusBarService = new StatusBarService(context, globals.repositoryServices);
       }
@@ -49,24 +54,46 @@ export async function activate(context: vscode.ExtensionContext) {
         registerCommands();
         commandsRegistered = true;
       }
-      globals.statusBarService.reloadEverything(true);
+
+      if (hadStatusBarService) {
+        await globals.statusBarService.reloadEverything(true);
+      }
     }, 500);
 
+    const initializeWhenGitReady = async () => {
+      for (let attempt = 0; attempt < gitInitializationMaxAttempts; attempt += 1) {
+        if (gitApi.state === "initialized" || gitApi.repositories.length > 0) {
+          debouncedInitialize();
+          return;
+        }
+
+        await new Promise(resolve => setTimeout(resolve, gitInitializationPollIntervalMs));
+      }
+
+      Logger.log(
+        "Git API did not report initialized during startup polling; attempting initialization anyway.",
+        "WARNING"
+      );
+      debouncedInitialize();
+    };
+
     // Initial load
-    if (gitApi.state === "initialized") {
-        debouncedInitialize();
-    }
+    void initializeWhenGitReady();
 
     // Set up listeners for repo changes
-    context.subscriptions.push(gitApi.onDidOpenRepository(repo => {
+    context.subscriptions.push(
+      gitApi.onDidOpenRepository(repo => {
         Logger.log(`Repository opened: ${repo.rootUri.fsPath}`, "INFO");
         debouncedInitialize();
-    }));
+      })
+    );
 
-    context.subscriptions.push(gitApi.onDidCloseRepository(repo => {
+    context.subscriptions.push(
+      gitApi.onDidCloseRepository(repo => {
         Logger.log(`Repository closed: ${repo.rootUri.fsPath}`, "INFO");
         debouncedInitialize();
-    }));
+      })
+    );
 
     // Re-initialize when workspace folders are added/removed
     context.subscriptions.push(
@@ -77,19 +104,18 @@ export async function activate(context: vscode.ExtensionContext) {
     );
 
     // Update on save for git files
-    const updateOnSave = vscode.workspace.onDidSaveTextDocument(async (document) => {
+    const updateOnSave = vscode.workspace.onDidSaveTextDocument(async document => {
       if (document.fileName.includes(".git") && globals.statusBarService) {
         globals.statusBarService.triggerUpdate(true);
       }
     });
     context.subscriptions.push(updateOnSave);
-
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     vscode.window.showErrorMessage(`Error initializing Git Tag Release Tracker: ${errorMessage}`);
     Logger.log(`Initialization error: ${errorMessage}`, "ERROR");
     if (error instanceof Error && error.stack) {
-      Logger.log(error.stack, 'ERROR');
+      Logger.log(error.stack, "ERROR");
     }
   }
 }

@@ -45,7 +45,7 @@ export class StatusBarService {
     this.refreshStatusItem.show();
 
     // Then update everything
-    this.updateEverything(true);
+    void this.updateEverything(false);
   }
 
   private createStatusBarItem(alignment: vscode.StatusBarAlignment, priority: number): vscode.StatusBarItem {

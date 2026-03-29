@@ -80,6 +80,14 @@ suite("CIService Test Suite", () => {
     return error;
   }
 
+  function createTransientAxiosError(message: string, code: string = "ECONNRESET") {
+    const error = new Error(message);
+    (error as any).isAxiosError = true;
+    (error as any).code = code;
+    (error as any).request = {};
+    return error;
+  }
+
   setup(() => {
     testEnv = setupTestEnvironment();
     sandbox = testEnv.sandbox;
@@ -172,6 +180,35 @@ suite("CIService Test Suite", () => {
     assert.strictEqual(result?.status, "error", "Status should be 'error'");
     assert.strictEqual(result?.message, "An unexpected error occurred: Network error", "Message should be correct");
     assert.strictEqual(result?.url, undefined, "URL should be undefined on error");
+  });
+
+  test("Should retry transient GitHub transport errors before succeeding", async () => {
+    const clock = sandbox.useFakeTimers();
+    const ciService = new CIService("owner", "repo");
+    const axiosStub = sandbox.stub(axios, "get");
+    axiosStub.onFirstCall().rejects(createTransientAxiosError("socket hang up"));
+    axiosStub.onSecondCall().resolves(createGitHubRunsResponse("completed", "main"));
+
+    const resultPromise = ciService.getBuildStatus("main", "github", false);
+    await clock.tickAsync(750);
+    const result = await resultPromise;
+
+    assert.strictEqual(result?.status, "success");
+    assert.strictEqual(axiosStub.callCount, 2);
+  });
+
+  test("Should downgrade repeated transient GitHub transport errors to unknown", async () => {
+    const clock = sandbox.useFakeTimers();
+    const ciService = new CIService("owner", "repo");
+    const axiosStub = sandbox.stub(axios, "get").rejects(createTransientAxiosError("read ECONNRESET"));
+
+    const resultPromise = ciService.getBuildStatus("main", "github", false);
+    await clock.tickAsync(750 + 1500);
+    const result = await resultPromise;
+
+    assert.strictEqual(result?.status, "unknown");
+    assert.ok(result?.message?.includes("retry automatically"));
+    assert.strictEqual(axiosStub.callCount, 3);
   });
 
   test("Should handle GitLab CI type correctly", async () => {
