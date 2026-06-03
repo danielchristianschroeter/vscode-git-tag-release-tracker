@@ -46,6 +46,14 @@ export async function activate(context: vscode.ExtensionContext) {
       Logger.log("Git repositories changed, re-initializing.", "INFO");
       await initializeServices();
 
+      if (globals.repositoryServices.size === 0) {
+        if (globals.statusBarService) {
+          globals.statusBarService.clearAllItems();
+        }
+        Logger.log("No Git repositories available; skipping status bar setup.", "INFO");
+        return;
+      }
+
       const hadStatusBarService = !!globals.statusBarService;
       if (!globals.statusBarService) {
         globals.statusBarService = new StatusBarService(context, globals.repositoryServices);

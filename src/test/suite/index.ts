@@ -9,7 +9,7 @@ export async function run(): Promise<void> {
     timeout: 30000
   });
 
-  const testsRoot = path.resolve(__dirname, "..");
+  const testsRoot = __dirname;
 
   try {
     const files = await glob("**/**.test.js", {cwd: testsRoot});

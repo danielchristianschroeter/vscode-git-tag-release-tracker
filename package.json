@@ -41,7 +41,10 @@
     "collaboration"
   ],
   "activationEvents": [
-    "workspaceContains:.git"
+    "workspaceContains:.git",
+    "workspaceContains:**/.git",
+    "workspaceContains:**/.git/HEAD",
+    "onStartupFinished"
   ],
   "contributes": {
     "commands": [
