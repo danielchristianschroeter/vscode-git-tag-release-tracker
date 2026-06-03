@@ -125,6 +125,7 @@ This extension adheres to [Semantic Versioning 2.0.0](https://semver.org/). Unde
 - Check extension logs via "Git Tag Release Tracker: Show Logs".
 - Ensure CI tokens are correctly configured.
 - Verify repository has a valid remote URL and is connected to GitHub or GitLab.
+- If you open a parent folder that contains multiple Git repositories, the extension scans the opened workspace folders for nested `.git` directories and shows them in one dashboard. Very deeply nested repositories may require opening a closer parent folder.
 - Transient provider transport issues such as `ECONNRESET` or `socket hang up` are retried automatically; if they persist, the extension temporarily shows an unknown CI state and retries on the next refresh.
 - If build status updates pause for a while under heavy API usage, the extension may be in a temporary rate-limit cooldown and will resume fresh checks after the provider reset window.
 - If you see "Loading..." for an extended period, try switching between files or refreshing VS Code.

@@ -1,5 +1,19 @@
 # Changelog
 
+## [3.0.5]
+
+### Changed
+
+- Added startup activation as a fallback so repository container folders are checked even when VS Code does not match nested Git repositories during workspace activation.
+- Added bounded workspace-folder scanning to discover nested Git repositories when VS Code's Git API initially reports no repositories.
+- Tightened the VS Code test harness so extension tests run against this repository and only load the current compiled test suite.
+
+### Fixed
+
+- Fixed the status bar not appearing when opening a parent folder that contains multiple child Git repositories.
+- Fixed the `F5` extension host launch failure caused by an undefined `$esbuild-watch` problem matcher.
+- Removed the noisy "No Git repositories found" notification during startup scans when a workspace does not contain repositories.
+
 ## [3.0.4]
 
 ### Changed
